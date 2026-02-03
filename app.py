@@ -20,6 +20,7 @@ from mcp.server.fastmcp import FastMCP
 
 from config import get_settings
 from routers.health import router as health_router
+from routers.enroll import router as enroll_router
 
 settings = get_settings()
 
@@ -30,10 +31,12 @@ app = FastAPI(
 )
 
 app.include_router(health_router)
+app.include_router(enroll_router)
 
 mcp = FastMCP("ironic-aio")
 
 # Register MCP tools (side-effect import)
 from mcp_tools import health as _health  # noqa: F401
+from mcp_tools import enroll as _enroll  # noqa: F401
 
 app.mount("/mcp", mcp.sse_app())
