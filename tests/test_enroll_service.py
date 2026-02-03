@@ -45,7 +45,7 @@ async def test_enroll_server_success(
     request = EnrollRequest(
         name="test-server",
         bmc=BMCCredentials(
-            driver="ipmi",
+            driver="redfish",
             address="192.168.1.100",
             username="admin",
             password="password",
@@ -74,7 +74,7 @@ async def test_enroll_server_without_bmc_validation(
     request = EnrollRequest(
         name="test-server",
         bmc=BMCCredentials(
-            driver="ipmi",
+            driver="redfish",
             address="192.168.1.100",
             username="admin",
             password="password",
@@ -85,44 +85,6 @@ async def test_enroll_server_without_bmc_validation(
     result = await service.enroll_server(request)
 
     assert result.status == "enrolled"
-
-
-@pytest.mark.asyncio
-async def test_build_ipmi_driver_info() -> None:
-    """Test IPMI driver info building."""
-    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
-
-    bmc = BMCCredentials(
-        driver="ipmi",
-        address="192.168.1.100",
-        username="admin",
-        password="password",
-    )
-
-    driver_info = service._build_ipmi_driver_info(bmc)
-
-    assert driver_info["ipmi_address"] == "192.168.1.100"
-    assert driver_info["ipmi_username"] == "admin"
-    assert driver_info["ipmi_password"] == "password"
-    assert driver_info["ipmi_port"] == 623
-
-
-@pytest.mark.asyncio
-async def test_build_ipmi_driver_info_custom_port() -> None:
-    """Test IPMI driver info building with custom port."""
-    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
-
-    bmc = BMCCredentials(
-        driver="ipmi",
-        address="192.168.1.100",
-        username="admin",
-        password="password",
-        port=6230,
-    )
-
-    driver_info = service._build_ipmi_driver_info(bmc)
-
-    assert driver_info["ipmi_port"] == 6230
 
 
 @pytest.mark.asyncio
@@ -151,7 +113,7 @@ async def test_build_driver_info_with_supported_driver() -> None:
     service = EnrollService(ironic_client=FakeIronicClientForEnroll())
 
     bmc = BMCCredentials(
-        driver="ipmi",
+        driver="redfish",
         address="192.168.1.100",
         username="admin",
         password="password",
@@ -159,26 +121,7 @@ async def test_build_driver_info_with_supported_driver() -> None:
 
     driver_info = service._build_driver_info(bmc)
 
-    assert "ipmi_address" in driver_info
-
-
-@pytest.mark.asyncio
-async def test_build_driver_info_with_unsupported_driver() -> None:
-    """Test driver info building with unsupported driver."""
-    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
-
-    bmc = BMCCredentials(
-        driver="unsupported",
-        address="192.168.1.100",
-        username="admin",
-        password="password",
-    )
-
-    with pytest.raises(HTTPException) as exc_info:
-        service._build_driver_info(bmc)
-
-    assert exc_info.value.status_code == 400
-    assert "Unsupported driver type" in exc_info.value.detail
+    assert "redfish_address" in driver_info
 
 
 @pytest.mark.asyncio

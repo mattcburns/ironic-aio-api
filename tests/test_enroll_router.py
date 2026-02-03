@@ -14,7 +14,7 @@ async def test_enroll_server_endpoint_success(client) -> None:
     request_data = {
         "name": "test-server",
         "bmc": {
-            "driver": "ipmi",
+            "driver": "redfish",
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",
@@ -66,25 +66,6 @@ async def test_enroll_server_endpoint_missing_required_fields(client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_enroll_server_endpoint_invalid_driver(client) -> None:
-    """Test enrollment with unsupported driver type."""
-    request_data = {
-        "name": "test-server",
-        "bmc": {
-            "driver": "unsupported",
-            "address": "192.168.1.100",
-            "username": "admin",
-            "password": "password",
-        },
-    }
-
-    response = client.post("/servers", json=request_data)
-
-    assert response.status_code == 400
-    assert "Unsupported driver type" in response.json()["detail"]
-
-
-@pytest.mark.asyncio
 async def test_enroll_server_endpoint_with_properties(client) -> None:
     """Test enrollment with server properties."""
     request_data = {
@@ -114,7 +95,7 @@ async def test_enroll_server_endpoint_without_validation(client) -> None:
     request_data = {
         "name": "test-server",
         "bmc": {
-            "driver": "ipmi",
+            "driver": "redfish",
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",

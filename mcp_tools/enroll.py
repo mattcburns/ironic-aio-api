@@ -26,7 +26,7 @@ async def enroll_server(
     bmc_address: str,
     bmc_username: str,
     bmc_password: str,
-    driver: str = "ipmi",
+    driver: str = "redfish",
     resource_class: Optional[str] = None
 ) -> dict:
     """
@@ -37,7 +37,7 @@ async def enroll_server(
         bmc_address: BMC IP address or hostname
         bmc_username: BMC username
         bmc_password: BMC password
-        driver: BMC driver type (ipmi, redfish, ilo, idrac)
+        driver: BMC driver type (must be 'redfish')
         resource_class: Optional resource classification
 
     Returns:

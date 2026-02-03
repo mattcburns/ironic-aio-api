@@ -15,7 +15,7 @@ async def test_enroll_server_mcp_tool_success() -> None:
         bmc_address="192.168.1.100",
         bmc_username="admin",
         bmc_password="password",
-        driver="ipmi",
+        driver="redfish",
         resource_class="baremetal",
     )
 
@@ -62,7 +62,7 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
         bmc_address="192.168.1.103",
         bmc_username="admin",
         bmc_password="password",
-        driver="ipmi",
+        driver="redfish",
         resource_class="compute",
     )
 
@@ -70,17 +70,4 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
     assert result["status"] == "enrolled"
 
 
-@pytest.mark.asyncio
-async def test_enroll_server_mcp_tool_invalid_driver() -> None:
-    """Test enrollment with unsupported driver."""
-    with pytest.raises(Exception) as exc_info:
-        await enroll_server(
-            name="test-server",
-            bmc_address="192.168.1.100",
-            bmc_username="admin",
-            bmc_password="password",
-            driver="unsupported",
-        )
 
-    # The HTTPException is raised but wrapped in the async context
-    assert "Unsupported driver type" in str(exc_info.value)

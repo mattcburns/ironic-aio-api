@@ -22,11 +22,11 @@ from pydantic import BaseModel, Field
 class BMCCredentials(BaseModel):
     """BMC connection details."""
 
-    driver: str = Field(default="ipmi", description="BMC driver type (ipmi, redfish, ilo, idrac)")
+    driver: Literal["redfish"] = Field(default="redfish", description="BMC driver type (only 'redfish' is supported)")
     address: str = Field(description="BMC IP address or hostname")
     username: str = Field(description="BMC username")
     password: str = Field(description="BMC password")
-    port: Optional[int] = Field(default=None, description="BMC port (defaults vary by driver)")
+    port: Optional[int] = Field(default=None, description="Optional BMC port override")
 
 
 class EnrollRequest(BaseModel):

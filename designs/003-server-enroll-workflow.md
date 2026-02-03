@@ -22,7 +22,7 @@ The enrollment workflow is stateless:
 ## Goals
 
 1. Implement server enrollment as an atomic business operation
-2. Support common BMC types (IPMI, Redfish, iLO, iDRAC)
+2. Support Redfish BMC type exclusively
 3. Validate BMC connectivity during enrollment
 4. Provide sensible defaults while allowing customization
 5. Return enrolled server details
@@ -46,11 +46,11 @@ Internal customers need to:
 ```python
 class BMCCredentials(BaseModel):
     """BMC connection details."""
-    driver: str = "ipmi"  # ipmi, redfish, ilo, idrac
+    driver: Literal["redfish"] = "redfish"  # Only Redfish is supported
     address: str  # BMC IP or hostname
     username: str
     password: str
-    port: Optional[int] = None  # Default varies by driver
+    port: Optional[int] = None  # Optional port override
 
 class EnrollRequest(BaseModel):
     """Request to enroll a new server."""
@@ -97,21 +97,7 @@ class EnrollService:
 
     def _build_driver_info(self, bmc: BMCCredentials) -> dict:
         """Convert BMC credentials to Ironic driver_info format."""
-        driver_map = {
-            "ipmi": self._build_ipmi_driver_info,
-            "redfish": self._build_redfish_driver_info,
-        }
-        builder = driver_map.get(bmc.driver, self._build_ipmi_driver_info)
-        return builder(bmc)
-
-    def _build_ipmi_driver_info(self, bmc: BMCCredentials) -> dict:
-        """Build IPMI driver info."""
-        return {
-            "ipmi_address": bmc.address,
-            "ipmi_username": bmc.username,
-            "ipmi_password": bmc.password,
-            "ipmi_port": bmc.port or 623,
-        }
+        return self._build_redfish_driver_info(bmc)
 
     def _build_redfish_driver_info(self, bmc: BMCCredentials) -> dict:
         """Build Redfish driver info."""
@@ -157,7 +143,7 @@ async def enroll_server(
     bmc_address: str,
     bmc_username: str,
     bmc_password: str,
-    driver: str = "ipmi",
+    driver: str = "redfish",
     resource_class: Optional[str] = None
 ) -> dict:
     """
@@ -168,7 +154,7 @@ async def enroll_server(
         bmc_address: BMC IP address or hostname
         bmc_username: BMC username
         bmc_password: BMC password
-        driver: BMC driver type (ipmi, redfish, ilo, idrac)
+        driver: BMC driver type (must be 'redfish')
         resource_class: Optional resource classification
 
     Returns:
@@ -194,10 +180,7 @@ async def enroll_server(
 | Error Condition | HTTP Status | Message |
 |-----------------|-------------|---------|
 | Name already exists | 409 | "Server with name '{name}' already exists" |
-| Invalid driver | 400 | "Unsupported driver type: {driver}" |
-| BMC validation failed | 422 | "Unable to connect to BMC at {address}" |
-| Ironic API error | 502 | "Failed to communicate with Ironic" |
-
+| Invalid driver | 422 | "Only 'redfish' driver is supported" |
 ## Project Structure Additions
 
 ```

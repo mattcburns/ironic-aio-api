@@ -14,7 +14,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from datetime import datetime, timezone
-from typing import Callable
 
 from fastapi import HTTPException
 
@@ -115,39 +114,8 @@ class EnrollService:
 
         Returns:
             Dictionary formatted for Ironic driver_info
-
-        Raises:
-            HTTPException: If driver type is unsupported
         """
-        driver_map: dict[str, Callable[[BMCCredentials], dict]] = {
-            "ipmi": self._build_ipmi_driver_info,
-            "redfish": self._build_redfish_driver_info,
-        }
-
-        builder = driver_map.get(bmc.driver)
-        if not builder:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported driver type: {bmc.driver}"
-            )
-
-        return builder(bmc)
-
-    def _build_ipmi_driver_info(self, bmc: BMCCredentials) -> dict:
-        """Build IPMI driver info.
-
-        Args:
-            bmc: BMC credentials
-
-        Returns:
-            IPMI-formatted driver_info dictionary
-        """
-        return {
-            "ipmi_address": bmc.address,
-            "ipmi_username": bmc.username,
-            "ipmi_password": bmc.password,
-            "ipmi_port": bmc.port or 623,
-        }
+        return self._build_redfish_driver_info(bmc)
 
     def _build_redfish_driver_info(self, bmc: BMCCredentials) -> dict:
         """Build Redfish driver info.
