@@ -33,3 +33,11 @@ def get_enroll_service() -> "EnrollService":
 
     ironic_client = get_ironic_client()
     return EnrollService(ironic_client)
+
+
+def get_server_service() -> "ServerService":
+    """Create a server service instance."""
+    from services.server import ServerService
+
+    ironic_client = get_ironic_client()
+    return ServerService(ironic_client)
