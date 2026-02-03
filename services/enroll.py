@@ -54,13 +54,13 @@ class EnrollService:
         # Validate name is unique
         await self._validate_name_unique(request.name)
 
-        # Build driver_info from BMC credentials
-        driver_info = self._build_driver_info(request.bmc)
+        # Build Redfish driver_info from BMC credentials
+        driver_info = self._build_redfish_driver_info(request.bmc)
 
         # TODO: Create node in Ironic
         # node = await self.ironic.create_node(
         #     name=request.name,
-        #     driver=request.bmc.driver,
+        #     driver="redfish",
         #     driver_info=driver_info,
         #     resource_class=request.resource_class,
         #     properties=request.properties or {}
@@ -105,17 +105,6 @@ class EnrollService:
         #         detail=f"Server with name '{name}' already exists"
         #     )
         pass
-
-    def _build_driver_info(self, bmc: BMCCredentials) -> dict:
-        """Convert BMC credentials to Ironic driver_info format.
-
-        Args:
-            bmc: BMC credentials
-
-        Returns:
-            Dictionary formatted for Ironic driver_info
-        """
-        return self._build_redfish_driver_info(bmc)
 
     def _build_redfish_driver_info(self, bmc: BMCCredentials) -> dict:
         """Build Redfish driver info.

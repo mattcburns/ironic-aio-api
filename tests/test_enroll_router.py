@@ -14,7 +14,6 @@ async def test_enroll_server_endpoint_success(client) -> None:
     request_data = {
         "name": "test-server",
         "bmc": {
-            "driver": "redfish",
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",
@@ -71,7 +70,6 @@ async def test_enroll_server_endpoint_with_properties(client) -> None:
     request_data = {
         "name": "test-server",
         "bmc": {
-            "driver": "redfish",
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",
@@ -95,7 +93,6 @@ async def test_enroll_server_endpoint_without_validation(client) -> None:
     request_data = {
         "name": "test-server",
         "bmc": {
-            "driver": "redfish",
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",

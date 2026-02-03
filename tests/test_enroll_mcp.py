@@ -15,7 +15,6 @@ async def test_enroll_server_mcp_tool_success() -> None:
         bmc_address="192.168.1.100",
         bmc_username="admin",
         bmc_password="password",
-        driver="redfish",
         resource_class="baremetal",
     )
 
@@ -47,7 +46,6 @@ async def test_enroll_server_mcp_tool_redfish_driver() -> None:
         bmc_address="192.168.1.102",
         bmc_username="admin",
         bmc_password="password",
-        driver="redfish",
     )
 
     assert result["server_name"] == "redfish-server"
@@ -62,7 +60,6 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
         bmc_address="192.168.1.103",
         bmc_username="admin",
         bmc_password="password",
-        driver="redfish",
         resource_class="compute",
     )
 

@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field
 class BMCCredentials(BaseModel):
     """BMC connection details."""
 
-    driver: Literal["redfish"] = Field(default="redfish", description="BMC driver type (only 'redfish' is supported)")
     address: str = Field(description="BMC IP address or hostname")
     username: str = Field(description="BMC username")
     password: str = Field(description="BMC password")

@@ -22,10 +22,9 @@ The enrollment workflow is stateless:
 ## Goals
 
 1. Implement server enrollment as an atomic business operation
-2. Support Redfish BMC type exclusively
-3. Validate BMC connectivity during enrollment
-4. Provide sensible defaults while allowing customization
-5. Return enrolled server details
+2. Validate BMC connectivity during enrollment
+3. Provide sensible defaults while allowing customization
+4. Return enrolled server details
 
 ## Implementation Note
 
@@ -46,7 +45,6 @@ Internal customers need to:
 ```python
 class BMCCredentials(BaseModel):
     """BMC connection details."""
-    driver: Literal["redfish"] = "redfish"  # Only Redfish is supported
     address: str  # BMC IP or hostname
     username: str
     password: str
@@ -95,10 +93,6 @@ class EnrollService:
         """Ensure server name doesn't already exist."""
         ...
 
-    def _build_driver_info(self, bmc: BMCCredentials) -> dict:
-        """Convert BMC credentials to Ironic driver_info format."""
-        return self._build_redfish_driver_info(bmc)
-
     def _build_redfish_driver_info(self, bmc: BMCCredentials) -> dict:
         """Build Redfish driver info."""
         return {
@@ -143,7 +137,6 @@ async def enroll_server(
     bmc_address: str,
     bmc_username: str,
     bmc_password: str,
-    driver: str = "redfish",
     resource_class: Optional[str] = None
 ) -> dict:
     """
@@ -154,7 +147,6 @@ async def enroll_server(
         bmc_address: BMC IP address or hostname
         bmc_username: BMC username
         bmc_password: BMC password
-        driver: BMC driver type (must be 'redfish')
         resource_class: Optional resource classification
 
     Returns:
@@ -164,7 +156,6 @@ async def enroll_server(
     request = EnrollRequest(
         name=name,
         bmc=BMCCredentials(
-            driver=driver,
             address=bmc_address,
             username=bmc_username,
             password=bmc_password,
@@ -180,7 +171,8 @@ async def enroll_server(
 | Error Condition | HTTP Status | Message |
 |-----------------|-------------|---------|
 | Name already exists | 409 | "Server with name '{name}' already exists" |
-| Invalid driver | 422 | "Only 'redfish' driver is supported" |
+| BMC validation failed | 422 | "Unable to connect to BMC at {address}" |
+| Ironic API error | 502 | "Failed to communicate with Ironic" |
 ## Project Structure Additions
 
 ```
@@ -201,11 +193,11 @@ api/
 
 ## Testing Requirements
 
-1. Test successful enrollment with various drivers
+1. Test successful enrollment
 2. Test name uniqueness validation
 3. Test BMC connectivity validation (mocked)
 4. Test error handling for invalid inputs
-5. Test driver_info building for each supported driver
+5. Test Redfish driver_info building
 
 ## Acceptance Criteria
 

@@ -45,7 +45,6 @@ async def test_enroll_server_success(
     request = EnrollRequest(
         name="test-server",
         bmc=BMCCredentials(
-            driver="redfish",
             address="192.168.1.100",
             username="admin",
             password="password",
@@ -74,7 +73,6 @@ async def test_enroll_server_without_bmc_validation(
     request = EnrollRequest(
         name="test-server",
         bmc=BMCCredentials(
-            driver="redfish",
             address="192.168.1.100",
             username="admin",
             password="password",
@@ -93,7 +91,6 @@ async def test_build_redfish_driver_info() -> None:
     service = EnrollService(ironic_client=FakeIronicClientForEnroll())
 
     bmc = BMCCredentials(
-        driver="redfish",
         address="192.168.1.100",
         username="admin",
         password="password",
@@ -113,13 +110,12 @@ async def test_build_driver_info_with_supported_driver() -> None:
     service = EnrollService(ironic_client=FakeIronicClientForEnroll())
 
     bmc = BMCCredentials(
-        driver="redfish",
         address="192.168.1.100",
         username="admin",
         password="password",
     )
 
-    driver_info = service._build_driver_info(bmc)
+    driver_info = service._build_redfish_driver_info(bmc)
 
     assert "redfish_address" in driver_info
 
