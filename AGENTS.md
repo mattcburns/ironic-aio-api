@@ -12,6 +12,8 @@ See README.md for development setup and testing commands.
 - **Minimize dependencies**: Only add new Python packages when absolutely necessary
 - Prefer standard library solutions over third-party packages when feasible
 - **Use simple, well-proven solutions**: Favor mature, widely-adopted libraries over cutting-edge alternatives
+- **AGPL v3 Compatibility**: All dependencies MUST be licensed under AGPL v3 compatible licenses (e.g., MIT, Apache 2.0, BSD, LGPL, AGPL)
+- Reject dependencies with incompatible licenses (e.g., proprietary, GPL with linking restrictions)
 - Every core library used MUST have a justification documented in `README.md`
 - Carefully evaluate the trade-offs before introducing new dependencies
 - Keep `requirements.txt` lean and well-documented
@@ -46,6 +48,28 @@ See README.md for development setup and testing commands.
 - **Design completion criteria**: Before marking a design as implemented, ensure:
   - New tests verify all functionality introduced by the design
   - All existing tests continue to pass
+
+### Licensing
+- **Project License**: This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0)
+- **License Headers**: All new Python source files (.py) MUST include the following AGPL v3 license header at the top:
+```python
+# Copyright (C) 2026 Matthew Burns
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as published
+# by the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+- License headers are NOT required for: configuration files, test files, documentation files, or data files
+- When adding headers, use the current year and the project owner as the copyright holder
 
 ### Code Quality
 - **Simplicity first**: Write code as simple as possible to enable both AI agents and junior-level engineers to contribute
