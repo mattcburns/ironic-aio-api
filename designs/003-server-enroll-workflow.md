@@ -1,6 +1,6 @@
 # Design 003: Server Enroll Workflow
 
-**Status:** To Be Implemented
+**Status:** Implemented
 
 **Depends On:** Design 002
 
@@ -226,12 +226,12 @@ api/
 
 ## Acceptance Criteria
 
-- [ ] EnrollRequest and EnrollResponse schemas defined
-- [ ] EnrollService implements enrollment logic
-- [ ] REST POST /servers endpoint creates new servers
-- [ ] MCP enroll_server tool available
-- [ ] BMC connectivity validation works when requested
-- [ ] Appropriate errors returned for invalid requests
-- [ ] Unit tests cover service logic
-- [ ] Integration tests verify REST endpoint
-- [ ] MCP tool tests verify tool functionality
+- [x] EnrollRequest and EnrollResponse schemas defined
+- [x] EnrollService implements enrollment logic
+- [x] REST POST /servers endpoint creates new servers
+- [x] MCP enroll_server tool available
+- [x] BMC connectivity validation works when requested
+- [x] Appropriate errors returned for invalid requests
+- [x] Unit tests cover service logic
+- [x] Integration tests verify REST endpoint
+- [x] MCP tool tests verify tool functionality

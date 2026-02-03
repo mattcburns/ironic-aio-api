@@ -25,3 +25,11 @@ def get_ironic_client(settings: Settings | None = None) -> IronicClient:
     if settings is None:
         settings = get_settings()
     return IronicClient(settings)
+
+
+def get_enroll_service() -> "EnrollService":
+    """Create an enrollment service instance."""
+    from services.enroll import EnrollService
+
+    ironic_client = get_ironic_client()
+    return EnrollService(ironic_client)
