@@ -22,6 +22,7 @@ from config import get_settings
 from routers.health import router as health_router
 from routers.enroll import router as enroll_router
 from routers.server import router as server_router
+from routers.provision import router as provision_router
 
 settings = get_settings()
 
@@ -34,6 +35,7 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(enroll_router)
 app.include_router(server_router)
+app.include_router(provision_router)
 
 mcp = FastMCP("ironic-aio")
 
@@ -41,5 +43,6 @@ mcp = FastMCP("ironic-aio")
 from mcp_tools import health as _health  # noqa: F401
 from mcp_tools import enroll as _enroll  # noqa: F401
 from mcp_tools import server as _server  # noqa: F401
+from mcp_tools import provision as _provision  # noqa: F401
 
 app.mount("/mcp", mcp.sse_app())

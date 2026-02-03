@@ -41,3 +41,11 @@ def get_server_service() -> "ServerService":
 
     ironic_client = get_ironic_client()
     return ServerService(ironic_client)
+
+def get_provision_service() -> "ProvisionService":
+    """Create a provision service instance."""
+    from services.provision import ProvisionService
+
+    ironic_client = get_ironic_client()
+    server_service = get_server_service()
+    return ProvisionService(ironic_client, server_service)

@@ -1,6 +1,6 @@
 # Design 005: Server Provision Workflow
 
-**Status:** To Be Implemented
+**Status:** Implemented
 
 **Depends On:** Design 004
 
