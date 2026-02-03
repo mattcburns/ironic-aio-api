@@ -1,6 +1,6 @@
 # Design 004: Server List Business Process
 
-**Status:** To Be Implemented
+**Status:** Implemented
 
 **Depends On:** Design 003
 
@@ -188,9 +188,9 @@ api/
 
 ## Acceptance Criteria
 
-- [ ] ServerService implemented with filtering and pagination
-- [ ] REST endpoints accessible at /servers and /servers/{id}
-- [ ] MCP tools list_servers and get_server working
-- [ ] Business logic correctly determines server availability
-- [ ] OpenAPI documentation includes all query parameters
-- [ ] All tests pass
+- [x] ServerService implemented with filtering and pagination
+- [x] REST endpoints accessible at /servers and /servers/{id}
+- [x] MCP tools list_servers and get_server working
+- [x] Business logic correctly determines server availability
+- [x] OpenAPI documentation includes all query parameters
+- [x] All tests pass
