@@ -1,6 +1,6 @@
 # Design 006: Server Unprovision Workflow
 
-**Status:** To Be Implemented
+**Status:** Implemented
 
 **Depends On:** Design 004
 

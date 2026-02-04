@@ -49,3 +49,12 @@ def get_provision_service() -> "ProvisionService":
     ironic_client = get_ironic_client()
     server_service = get_server_service()
     return ProvisionService(ironic_client, server_service)
+
+
+def get_unprovision_service() -> "UnprovisionService":
+    """Create an unprovision service instance."""
+    from services.unprovision import UnprovisionService
+
+    ironic_client = get_ironic_client()
+    server_service = get_server_service()
+    return UnprovisionService(ironic_client, server_service)
