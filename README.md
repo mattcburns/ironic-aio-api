@@ -18,6 +18,14 @@ Start the unified server (REST + MCP):
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
+## Ironic Connection Settings
+
+Configure Ironic authentication and TLS verification with environment variables:
+
+- `IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME`: Optional Ironic basic auth username
+- `IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD`: Optional Ironic basic auth password
+- `IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION`: Set to `true` to skip TLS CA verification
+
 ## Running Tests
 
 ```bash

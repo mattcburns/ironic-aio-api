@@ -43,14 +43,26 @@ class IronicClient:
 
     async def get_connection(self) -> Connection:
         """Get or create OpenStack connection."""
+        connection_kwargs = {
+            "endpoint_override": self.settings.ironic_api_url,
+            "baremetal_endpoint_override": self.settings.ironic_api_url,
+            "baremetal_api_version": self.settings.ironic_api_version,
+            "verify": not self.settings.ironic_skip_ca_verification,
+        }
+        if (
+            self.settings.ironic_basic_auth_username
+            and self.settings.ironic_basic_auth_password
+        ):
+            connection_kwargs["auth_type"] = "http_basic"
+            connection_kwargs["auth"] = {
+                "username": self.settings.ironic_basic_auth_username,
+                "password": self.settings.ironic_basic_auth_password,
+            }
+        else:
+            connection_kwargs["auth_type"] = "none"
 
         try:
-            connection = os_connection.Connection(
-                auth_type="none",
-                endpoint_override=self.settings.ironic_api_url,
-                baremetal_endpoint_override=self.settings.ironic_api_url,
-                baremetal_api_version=self.settings.ironic_api_version,
-            )
+            connection = os_connection.Connection(**connection_kwargs)
         except Exception as exc:  # pragma: no cover - depends on SDK internals
             logger.exception("Failed to create OpenStack connection")
             raise IronicClientError("Failed to create OpenStack connection") from exc

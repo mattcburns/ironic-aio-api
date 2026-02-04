@@ -34,6 +34,30 @@ async def test_get_connection_uses_noauth(monkeypatch: pytest.MonkeyPatch) -> No
     assert spy.kwargs["endpoint_override"] == settings.ironic_api_url
     assert spy.kwargs["baremetal_endpoint_override"] == settings.ironic_api_url
     assert spy.kwargs["baremetal_api_version"] == settings.ironic_api_version
+    assert spy.kwargs["verify"] is True
+
+
+@pytest.mark.asyncio
+async def test_get_connection_uses_basic_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    spy = ConnectionSpy()
+    monkeypatch.setattr("clients.ironic.os_connection.Connection", spy)
+
+    settings = Settings(
+        ironic_basic_auth_username="ironic-user",
+        ironic_basic_auth_password="ironic-pass",
+        ironic_skip_ca_verification=True,
+    )
+    client = IronicClient(settings)
+    connection = await client.get_connection()
+
+    assert spy.called is True
+    assert connection is not None
+    assert spy.kwargs["auth_type"] == "http_basic"
+    assert spy.kwargs["auth"] == {
+        "username": "ironic-user",
+        "password": "ironic-pass",
+    }
+    assert spy.kwargs["verify"] is False
 
 
 @pytest.mark.asyncio
