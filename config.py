@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     debug: bool = False
     ironic_api_url: str = "http://localhost:6385"
     ironic_api_version: str = "1.82"
+    ironic_basic_auth_username: str | None = None
+    ironic_basic_auth_password: str | None = None
+    ironic_skip_ca_verification: bool = False
 
     model_config = SettingsConfigDict(env_prefix="IRONIC_AIO_")
 
