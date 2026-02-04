@@ -9,8 +9,12 @@ WORKDIR /app
 # Copy the requirements file
 COPY requirements.txt .
 
-# Install the dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install build dependencies, install Python packages, then remove build dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc python3-dev && \
+    pip install --no-cache-dir -r requirements.txt && \
+    apt-get purge -y --auto-remove gcc python3-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy the rest of the application code
 COPY . .
