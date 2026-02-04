@@ -23,6 +23,7 @@ from routers.health import router as health_router
 from routers.enroll import router as enroll_router
 from routers.server import router as server_router
 from routers.provision import router as provision_router
+from routers.unprovision import router as unprovision_router
 
 settings = get_settings()
 
@@ -36,6 +37,7 @@ app.include_router(health_router)
 app.include_router(enroll_router)
 app.include_router(server_router)
 app.include_router(provision_router)
+app.include_router(unprovision_router)
 
 mcp = FastMCP("ironic-aio")
 
@@ -44,5 +46,6 @@ from mcp_tools import health as _health  # noqa: F401
 from mcp_tools import enroll as _enroll  # noqa: F401
 from mcp_tools import server as _server  # noqa: F401
 from mcp_tools import provision as _provision  # noqa: F401
+from mcp_tools import unprovision as _unprovision  # noqa: F401
 
 app.mount("/mcp", mcp.sse_app())
