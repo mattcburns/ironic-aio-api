@@ -37,6 +37,17 @@ See README.md for development setup and testing commands.
 - **Create branches from master**: Always create new branches off of `master`, never create sub-branches of existing feature branches
 - **One branch per design**: Each design implementation gets a single dedicated branch
 - Branch naming should reference the design number (e.g., `design-001-api-setup`)
+- Infrastructure and tooling designs follow the same branching discipline
+
+### CI/CD and Build Automation
+- **Python-based build scripts**: Use Python with standard library for build automation instead of bash
+- **Design-driven infrastructure**: Build automation and CI/CD workflows MUST be documented as designs in the `designs/` directory
+- **GitHub Actions integration**: Automated builds and releases use GitHub Actions workflows
+- **Environment parity**: Build scripts must work identically in local development and CI/CD environments
+- **Configuration flexibility**: Support both CLI arguments and environment variables for configuration
+- **Metadata tracking**: Build processes should generate and save metadata (digests, tags, status) for auditing
+- **Container registry agnostic**: Support multiple registries (Docker Hub, GHCR, private registries)
+- **Automated releases**: Tag-based releases (v* pattern) trigger automated container builds and pushes
 
 ### Testing Requirements
 - **All new code MUST include tests**: No code should be merged without corresponding test coverage

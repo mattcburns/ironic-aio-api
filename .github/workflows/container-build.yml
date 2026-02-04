@@ -1,0 +1,95 @@
+name: Build and Release Container
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      registry:
+        description: 'Container registry'
+        required: false
+        default: 'ghcr.io'
+      tag:
+        description: 'Image tag'
+        required: false
+        default: 'latest'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.14'
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG=${GITHUB_REF#refs/tags/}
+          elif [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG=${{ github.event.inputs.tag }}
+          else
+            TAG=latest
+          fi
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "Image tag: ${TAG}"
+
+      - name: Determine registry
+        id: registry
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            REGISTRY=${{ github.event.inputs.registry }}
+          else
+            REGISTRY=ghcr.io
+          fi
+          echo "registry=${REGISTRY}" >> $GITHUB_OUTPUT
+          echo "Registry: ${REGISTRY}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.registry.outputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build container image
+        run: |
+          python build.py build \
+            --tag ${{ steps.tag.outputs.tag }} \
+            --registry ${{ steps.registry.outputs.registry }} \
+            --repo ${{ github.repository }}
+
+      - name: Push to registry
+        if: github.event_name != 'pull_request'
+        run: |
+          python build.py build \
+            --tag ${{ steps.tag.outputs.tag }} \
+            --registry ${{ steps.registry.outputs.registry }} \
+            --repo ${{ github.repository }} \
+            --push
+
+      - name: Upload build metadata
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-metadata
+          path: build-metadata.json
