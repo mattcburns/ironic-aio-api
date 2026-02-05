@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import httpx
 from openstack import connection as os_connection
 
 from config import Settings
@@ -40,6 +41,33 @@ class IronicClient:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+
+    def _get_http_client_auth(self) -> httpx.BasicAuth | None:
+        """Get basic auth credentials if configured.
+
+        Returns:
+            httpx.BasicAuth object if credentials are configured, None otherwise
+        """
+        if (
+            self.settings.ironic_basic_auth_username
+            and self.settings.ironic_basic_auth_password
+        ):
+            return httpx.BasicAuth(
+                self.settings.ironic_basic_auth_username,
+                self.settings.ironic_basic_auth_password,
+            )
+        return None
+
+    def _create_http_client(self) -> httpx.AsyncClient:
+        """Create a pre-configured httpx AsyncClient with auth and SSL settings.
+
+        Returns:
+            Configured httpx.AsyncClient for Ironic API requests
+        """
+        return httpx.AsyncClient(
+            auth=self._get_http_client_auth(),
+            verify=not self.settings.ironic_skip_ca_verification,
+        )
 
     async def get_connection(self) -> Connection:
         """Get or create OpenStack connection."""
@@ -86,10 +114,51 @@ class IronicClient:
 
         try:
             await self.get_connection()
-            # TODO: Replace this with a lightweight Ironic API call.
+
+            # Make a lightweight GET request to /v1/ endpoint to verify connectivity
+            # and check API version
+            url = f"{self.settings.ironic_api_url.rstrip('/')}/v1/"
+
+            async with self._create_http_client() as client:
+                response = await client.get(url, timeout=10.0)
+                response.raise_for_status()
+
+                # Parse the API version from the response
+                data = response.json()
+                api_version = data.get("version", {}).get("version", "unknown")
+                logger.info(f"Ironic API version: {api_version}")
+
+                # Compare with configured version
+                configured_version = self.settings.ironic_api_version
+                if self._is_version_older(api_version, configured_version):
+                    logger.error(
+                        f"Ironic API version {api_version} is older than configured "
+                        f"version {configured_version}"
+                    )
+
             return True
         except IronicClientError:
             return False
         except Exception:
             logger.exception("Unexpected error while checking Ironic connectivity")
+            return False
+
+    def _is_version_older(self, current: str, required: str) -> bool:
+        """Compare two version strings to check if current is older than required.
+
+        Args:
+            current: Current API version string (e.g., "1.82")
+            required: Required API version string (e.g., "1.82")
+
+        Returns:
+            True if current version is older than required version
+        """
+        try:
+            # Parse version strings like "1.82" into tuples (1, 82)
+            current_parts = tuple(int(x) for x in current.split("."))
+            required_parts = tuple(int(x) for x in required.split("."))
+            return current_parts < required_parts
+        except (ValueError, AttributeError):
+            # If we can't parse versions, assume it's not older
+            logger.warning(f"Unable to compare versions: {current} vs {required}")
             return False
