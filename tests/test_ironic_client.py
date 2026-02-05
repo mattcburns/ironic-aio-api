@@ -2,6 +2,8 @@
 
 import pytest
 
+import httpx
+
 from clients.ironic import IronicClient, IronicClientError
 from config import Settings
 
@@ -23,8 +25,16 @@ class ConnectionSpy:
 async def test_get_connection_uses_noauth(monkeypatch: pytest.MonkeyPatch) -> None:
     spy = ConnectionSpy()
     monkeypatch.setattr("clients.ironic.os_connection.Connection", spy)
+    # Clear any .env loaded credentials and CA skip settings
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD", raising=False)
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION", raising=False)
 
-    settings = Settings()
+    settings = Settings(
+        ironic_basic_auth_username=None,
+        ironic_basic_auth_password=None,
+        ironic_skip_ca_verification=False,
+    )
     client = IronicClient(settings)
     connection = await client.get_connection()
 
@@ -35,6 +45,71 @@ async def test_get_connection_uses_noauth(monkeypatch: pytest.MonkeyPatch) -> No
     assert spy.kwargs["baremetal_endpoint_override"] == settings.ironic_api_url
     assert spy.kwargs["baremetal_api_version"] == settings.ironic_api_version
     assert spy.kwargs["verify"] is True
+
+
+def test_get_http_client_auth_returns_none_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Clear any .env loaded credentials
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD", raising=False)
+
+    settings = Settings(
+        ironic_basic_auth_username=None,
+        ironic_basic_auth_password=None,
+    )
+    client = IronicClient(settings)
+
+    auth = client._get_http_client_auth()
+
+    assert auth is None
+
+
+def test_get_http_client_auth_returns_basic_auth_with_credentials() -> None:
+    settings = Settings(
+        ironic_basic_auth_username="testuser",
+        ironic_basic_auth_password="testpass",
+    )
+    client = IronicClient(settings)
+
+    auth = client._get_http_client_auth()
+
+    assert isinstance(auth, httpx.BasicAuth)
+
+
+def test_create_http_client_without_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Clear any .env loaded credentials
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME", raising=False)
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD", raising=False)
+    monkeypatch.delenv("IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION", raising=False)
+
+    settings = Settings(
+        ironic_skip_ca_verification=False,
+        ironic_basic_auth_username=None,
+        ironic_basic_auth_password=None,
+    )
+    client = IronicClient(settings)
+
+    # Verify the client can be created successfully without auth
+    http_client = client._create_http_client()
+    assert isinstance(http_client, httpx.AsyncClient)
+    assert http_client._auth is None
+
+
+def test_create_http_client_with_credentials() -> None:
+    settings = Settings(
+        ironic_basic_auth_username="testuser",
+        ironic_basic_auth_password="testpass",
+        ironic_skip_ca_verification=True,
+    )
+    client = IronicClient(settings)
+
+    # Verify the client can be created successfully with auth
+    http_client = client._create_http_client()
+    assert isinstance(http_client, httpx.AsyncClient)
+    assert http_client._auth is not None
 
 
 @pytest.mark.asyncio

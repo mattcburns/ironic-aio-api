@@ -15,7 +15,11 @@ class Settings(BaseSettings):
     ironic_basic_auth_password: str | None = None
     ironic_skip_ca_verification: bool = False
 
-    model_config = SettingsConfigDict(env_prefix="IRONIC_AIO_")
+    model_config = SettingsConfigDict(
+        env_prefix="IRONIC_AIO_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
 
 
 def get_settings() -> Settings:

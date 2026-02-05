@@ -18,13 +18,29 @@ Start the unified server (REST + MCP):
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
 
-## Ironic Connection Settings
+## Configuration
 
-Configure Ironic authentication and TLS verification with environment variables:
+### Environment Variables
+
+Configuration is managed through environment variables with the `IRONIC_AIO_` prefix:
 
 - `IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME`: Optional Ironic basic auth username
 - `IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD`: Optional Ironic basic auth password
 - `IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION`: Set to `true` to skip TLS CA verification
+
+### .env File Support
+
+For development convenience, the application automatically loads a `.env` file in the project root if present. Create a `.env` file with your environment variables:
+
+```
+IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME=ironicuser
+IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD=your_password
+IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION=true
+IRONIC_AIO_IRONIC_API_URL=https://your-ironic-api:6385
+IRONIC_AIO_IRONIC_API_VERSION=1.82
+```
+
+The `.env` file is optional and ignored by Git. For production deployments, use proper environment variable management (e.g., Kubernetes secrets, systemd environment files).
 
 ## Running Tests
 
