@@ -28,20 +28,23 @@ class FakeNode:
         self.resource_class = None
         self.properties = {}
         self.ports = []
+        self.provision_state = "enroll"  # Initial state
 
 
 class FakeIronicClientForEnroll:
     """Test double for the Ironic client."""
 
-    def __init__(self, existing_nodes: list[str] | None = None):
+    def __init__(self, existing_nodes: list[str] | None = None, simulate_error: str | None = None):
         """Initialize fake client.
 
         Args:
             existing_nodes: List of existing node names
+            simulate_error: Error type to simulate ('api_error', 'not_implemented')
         """
         self.existing_nodes = existing_nodes or []
         self.created_nodes = []
         self._nodes_by_name = {name: FakeNode(name) for name in self.existing_nodes}
+        self.simulate_error = simulate_error
 
     async def get_node_by_name(self, name: str) -> FakeNode | None:
         """Get a node by name.
@@ -74,6 +77,13 @@ class FakeIronicClientForEnroll:
         Returns:
             Created FakeNode object
         """
+        if self.simulate_error == "api_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError("Failed to create node")
+
+        if self.simulate_error == "not_implemented":
+            raise NotImplementedError("Node creation not implemented")
+
         node = FakeNode(name)
         node.driver = driver
         node.driver_info = driver_info
@@ -119,8 +129,44 @@ class FakeIronicClientForEnroll:
         Returns:
             Validation result dictionary
         """
+        if self.simulate_error == "bmc_validation_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError("BMC validation failed")
+
         return {"result": "success"}
 
+    async def set_node_provision_state(
+        self,
+        node_id: str,
+        target_state: str,
+    ) -> FakeNode:
+        """Set node provision state target.
+
+        Args:
+            node_id: UUID of the node
+            target_state: Target provision state
+
+        Returns:
+            Updated FakeNode object
+        """
+        if self.simulate_error == "state_transition_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError(f"Failed to transition node to {target_state}")
+
+        # Find and update the node
+        for node in self.created_nodes:
+            if node.id == node_id:
+                node.provision_state = target_state
+                return node
+
+        # If not found in created nodes, check existing nodes
+        for node in self._nodes_by_name.values():
+            if node.id == node_id:
+                node.provision_state = target_state
+                return node
+
+        from clients.ironic import IronicClientError
+        raise IronicClientError(f"Node {node_id} not found")
 
 
 @pytest.fixture()
@@ -164,7 +210,7 @@ async def test_enroll_server_success(
 
     assert result.server_name == "test-server"
     assert result.status == "enrolled"
-    assert result.provision_state == "enroll"
+    assert result.provision_state == "provide"  # Should be in 'provide' state after transitions
     assert "successfully enrolled" in result.message
     assert isinstance(result.created_at, datetime)
     assert result.created_at.tzinfo is not None
@@ -303,3 +349,144 @@ async def test_validate_bmc_connectivity_success() -> None:
     result = await service._validate_bmc_connectivity("test-uuid")
 
     assert result is True
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_duplicate_name_fails(
+    fake_ironic_client_with_nodes: FakeIronicClientForEnroll,
+) -> None:
+    """Test enrollment fails when server name already exists."""
+    service = EnrollService(ironic_client=fake_ironic_client_with_nodes)
+
+    request = EnrollRequest(
+        name="existing-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.enroll_server(request)
+
+    assert exc_info.value.status_code == 409
+    assert "already exists" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_ironic_api_error(
+    fake_ironic_client_empty: FakeIronicClientForEnroll,
+) -> None:
+    """Test enrollment fails on Ironic API error."""
+    fake_client = FakeIronicClientForEnroll(simulate_error="api_error")
+    service = EnrollService(ironic_client=fake_client)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.enroll_server(request)
+
+    assert exc_info.value.status_code == 502
+    assert "Ironic API error" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_bmc_validation_fails() -> None:
+    """Test enrollment fails when BMC validation fails."""
+    fake_client = FakeIronicClientForEnroll(simulate_error="bmc_validation_error")
+    service = EnrollService(ironic_client=fake_client)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+        validate_bmc=True,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.enroll_server(request)
+
+    assert exc_info.value.status_code == 422
+    assert "Unable to connect to BMC" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_build_redfish_driver_info_with_bmc_port() -> None:
+    """Test Redfish driver info includes BMC port when specified."""
+    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
+
+    bmc = BMCCredentials(
+        address="192.168.1.100",
+        username="admin",
+        password="password",
+        port=8443,
+    )
+
+    driver_info = service._build_redfish_driver_info(bmc)
+
+    assert driver_info["redfish_address"] == "https://192.168.1.100:8443"
+    assert driver_info["redfish_username"] == "admin"
+    assert driver_info["redfish_password"] == "password"
+    assert driver_info["redfish_system_id"] == "/redfish/v1/Systems/1"
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_state_transition_error() -> None:
+    """Test enrollment fails on state transition error."""
+    fake_client = FakeIronicClientForEnroll(simulate_error="state_transition_error")
+    service = EnrollService(ironic_client=fake_client)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+        validate_bmc=False,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.enroll_server(request)
+
+    assert exc_info.value.status_code == 502
+    assert "Ironic API error" in exc_info.value.detail

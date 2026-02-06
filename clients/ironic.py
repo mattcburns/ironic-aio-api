@@ -220,6 +220,36 @@ class IronicClient:
             logger.exception(f"Failed to validate node {node_id}")
             raise IronicClientError(f"Failed to validate node {node_id}") from exc
 
+    async def set_node_provision_state(
+        self,
+        node_id: str,
+        target_state: str,
+    ) -> Node:
+        """Set node provision state target.
+
+        Args:
+            node_id: UUID of the node
+            target_state: Target provision state (e.g., 'manage', 'provide', 'active', 'deleted')
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If the state transition fails
+        """
+        try:
+            connection = await self.get_connection()
+            node = connection.baremetal.set_node_provision_state(
+                node_id,
+                target_state
+            )
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to set provision state for node {node_id}")
+            raise IronicClientError(
+                f"Failed to set provision state for node {node_id} to {target_state}"
+            ) from exc
+
     async def check_connectivity(self) -> bool:
         """Check if Ironic API is reachable."""
 

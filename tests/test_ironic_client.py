@@ -578,3 +578,52 @@ async def test_validate_node_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(IronicClientError, match="Failed to validate node node-xyz"):
         await client.validate_node("node-xyz")
+
+@pytest.mark.asyncio
+async def test_set_node_provision_state_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_provision_state successfully transitions node state."""
+
+    class FakeNode:
+        id = "node-123"
+        provision_state = "manage"
+
+    class MockBaremetal:
+        def set_node_provision_state(self, node_id, target_state):
+            return FakeNode()
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    result = await client.set_node_provision_state("node-123", "manage")
+
+    assert result.id == "node-123"
+    assert result.provision_state == "manage"
+
+
+@pytest.mark.asyncio
+async def test_set_node_provision_state_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_provision_state raises IronicClientError on failure."""
+
+    class MockBaremetal:
+        def set_node_provision_state(self, node_id, target_state):
+            raise RuntimeError("State transition failed")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    with pytest.raises(IronicClientError, match="Failed to set provision state"):
+        await client.set_node_provision_state("node-123", "manage")

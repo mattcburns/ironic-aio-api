@@ -107,7 +107,6 @@ async def test_enroll_server_endpoint_with_properties(client) -> None:
 
     assert response.status_code == 201
 
-
 @pytest.mark.asyncio
 async def test_enroll_server_endpoint_without_validation(client) -> None:
     """Test enrollment without BMC validation."""

@@ -118,14 +118,18 @@ class EnrollService:
             )
             logger.info(f"Network port added for: {request.name}")
 
-            # Step 5-7: Handle state transitions (currently stubbed in Ironic client)
-            # These would typically be:
-            # - Manage the node
-            # - Inspect the node
-            # - Make available
-            # For now, we track the provision state from the created node
-            provision_state = "enroll"  # Default state at creation
-            logger.info(f"Current provision state: {provision_state}")
+            # Step 5-7: Handle state transitions
+            logger.info(f"Transitioning node to manageable state for: {request.name}")
+            node = await self.ironic.set_node_provision_state(server_id, "manage")
+            provision_state = node.provision_state
+            logger.info(f"Node transitioned to state: {provision_state}")
+
+            # Make node available for provisioning
+            logger.info(f"Transitioning node to available state for: {request.name}")
+            node = await self.ironic.set_node_provision_state(server_id, "provide")
+            provision_state = node.provision_state
+            logger.info(f"Node transitioned to state: {provision_state}")
+
 
             # Step 8: Optionally validate BMC connectivity
             if request.validate_bmc:
