@@ -130,3 +130,46 @@ async def test_enroll_server_endpoint_without_validation(client) -> None:
     response = client.post("/servers", json=request_data)
 
     assert response.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_status_endpoint(client) -> None:
+    """Test getting enrollment status via REST endpoint."""
+    # First enroll a server
+    request_data = {
+        "name": "status-test-server",
+        "bmc": {
+            "address": "192.168.1.100",
+            "username": "admin",
+            "password": "password",
+        },
+        "network": {
+            "mac_address": "00:11:22:33:44:55",
+            "nic_name": "eth0",
+            "ip_address": "10.0.0.10",
+            "netmask": "255.255.255.0",
+            "gateway": "10.0.0.1",
+        },
+    }
+    enroll_response = client.post("/servers", json=request_data)
+    assert enroll_response.status_code == 201
+    server_id = enroll_response.json()["server_id"]
+
+    # Get enrollment status
+    status_response = client.get(f"/servers/{server_id}/enrollment-status")
+
+    assert status_response.status_code == 200
+    data = status_response.json()
+    assert data["server_id"] == server_id
+    assert data["server_name"] == "status-test-server"
+    assert "provision_state" in data
+    assert "message" in data
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_status_not_found(client) -> None:
+    """Test enrollment status returns proper error when server not found."""
+    response = client.get("/servers/nonexistent-uuid/enrollment-status")
+
+    # Should return 502 (Ironic API error) when node not found
+    assert response.status_code == 502

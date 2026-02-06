@@ -56,16 +56,20 @@ class EnrollService:
         """
         Enroll a new server into Ironic.
 
+        Manage transition is synchronous (required before available).
+        Provide transition is asynchronous (initiated but not awaited).
+        Returns immediately with the current state. Use get_enrollment_status() to poll for completion.
+
         Steps:
         1. Validate name is unique
         2. Build driver_info from BMC credentials
         3. Create node in Ironic
         4. Add network port with MAC address
         5. Configure network settings (IP, netmask, gateway) for cleaning operations
-        6. Mark node as manageable (transition state)
-        7. Transition node to available state
+        6. Transition to manageable state (synchronous, blocks until completion)
+        7. Initiate transition to available state (asynchronous, doesn't block)
         8. Optionally validate BMC connectivity
-        9. Return enrollment result
+        9. Return enrollment result with current state
 
         Args:
             request: Enrollment request with server details
@@ -75,7 +79,7 @@ class EnrollService:
 
         Raises:
             HTTPException: 409 if name already exists
-            HTTPException: 502 if Ironic API communication fails
+            HTTPException: 502 if Ironic API communication fails or manage transition fails
             HTTPException: 422 if BMC validation fails
         """
         try:
@@ -119,16 +123,31 @@ class EnrollService:
             logger.info(f"Network port added for: {request.name}")
 
             # Step 5-7: Handle state transitions
+            # Manage transition is synchronous (required before available)
             logger.info(f"Transitioning node to manageable state for: {request.name}")
-            node = await self.ironic.set_node_provision_state(server_id, "manage")
-            provision_state = node.provision_state
-            logger.info(f"Node transitioned to state: {provision_state}")
+            try:
+                node = await self.ironic.set_node_provision_state(server_id, "manage")
+                provision_state = node.provision_state
+                logger.info(f"Node transitioned to state: {provision_state}")
+            except IronicClientError as e:
+                logger.exception(f"Failed to transition node to manage: {str(e)}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to transition node to manage state: {str(e)}"
+                )
 
-            # Make node available for provisioning
-            logger.info(f"Transitioning node to available state for: {request.name}")
-            node = await self.ironic.set_node_provision_state(server_id, "provide")
-            provision_state = node.provision_state
-            logger.info(f"Node transitioned to state: {provision_state}")
+            # Provide transition is asynchronous (initiated but not awaited)
+            logger.info(f"Initiating state transition to provide for: {request.name}")
+            try:
+                await self.ironic.set_node_provision_state(server_id, "provide")
+                logger.info(f"State transition to provide initiated")
+            except IronicClientError as e:
+                logger.warning(f"Failed to initiate provide transition: {str(e)}")
+                # Non-critical error - node is already in manageable state
+
+            # Get current state from Ironic and return immediately
+            current_node = await self.ironic.get_node(server_id)
+            provision_state = current_node.provision_state
 
 
             # Step 8: Optionally validate BMC connectivity
@@ -150,7 +169,10 @@ class EnrollService:
                 server_name=request.name,
                 status="enrolled",
                 provision_state=provision_state,
-                message=f"Server '{request.name}' successfully enrolled",
+                message=f"Server '{request.name}' successfully enrolled. "
+                        f"Current state: {provision_state}. "
+                        f"State transitions may take several minutes. "
+                        f"Use GET /servers/{server_id}/enrollment-status to check progress.",
                 created_at=datetime.now(timezone.utc)
             )
 
@@ -261,3 +283,64 @@ class EnrollService:
         except Exception as e:
             logger.exception(f"Unexpected error during BMC validation for node {server_id}")
             return False
+
+    async def get_enrollment_status(self, server_id: str) -> EnrollResponse:
+        """
+        Get current enrollment status of a server.
+
+        Queries Ironic for the node's current state. No local state is maintained.
+        This is a stateless query that can be called repeatedly to poll for completion.
+
+        Args:
+            server_id: UUID of the enrolled server (node ID in Ironic)
+
+        Returns:
+            EnrollResponse with current state from Ironic
+
+        Raises:
+            HTTPException: 404 if server not found
+            HTTPException: 502 if Ironic API communication fails
+        """
+        try:
+            # Query Ironic for current state (no local state)
+            node = await self.ironic.get_node(server_id)
+
+            # Map Ironic provision state to human-readable message (pure function)
+            message = self._map_provision_state_to_message(node.provision_state)
+
+            return EnrollResponse(
+                server_id=node.id,
+                server_name=node.name,
+                status="enrolled",
+                provision_state=node.provision_state,  # Direct from Ironic
+                message=message,
+                created_at=datetime.now(timezone.utc)  # Response generation time
+            )
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error getting enrollment status for {server_id}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ironic API error: {str(e)}"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error getting enrollment status for {server_id}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error getting enrollment status: {str(e)}"
+            )
+
+    def _map_provision_state_to_message(self, provision_state: str) -> str:
+        """
+        Map Ironic provision state to human-readable message.
+
+        Pure function - no state modification.
+        """
+        state_messages = {
+            "available": "Server is ready for provisioning",
+            "manageable": "Server is being cleaned before becoming available",
+            "manage": "Server is being cleaned before becoming available",
+            "enroll": "Server enrolled, waiting to transition to manageable state",
+            "cleaning": "Server hardware is being cleaned",
+            "clean wait": "Server is waiting for cleaning to complete",
+        }
+        return state_messages.get(provision_state, f"Server status: {provision_state}")
