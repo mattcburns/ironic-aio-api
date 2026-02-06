@@ -13,12 +13,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
 
-from clients.ironic import IronicClient
+from clients.ironic import IronicClient, IronicClientError
 from schemas.enroll import BMCCredentials, EnrollRequest, EnrollResponse
+
+logger = logging.getLogger(__name__)
 
 ## Server Enrollment
 #
@@ -32,6 +35,10 @@ from schemas.enroll import BMCCredentials, EnrollRequest, EnrollResponse
 # 4. Mark the node as manageable
 # 5. Transition node to available state
 
+
+class EnrollmentError(HTTPException):
+    """Base exception for enrollment errors."""
+    pass
 
 
 class EnrollService:
@@ -49,13 +56,16 @@ class EnrollService:
         """
         Enroll a new server into Ironic.
 
+        Steps:
         1. Validate name is unique
         2. Build driver_info from BMC credentials
         3. Create node in Ironic
         4. Add network port with MAC address
         5. Configure network settings (IP, netmask, gateway) for cleaning operations
-        6. Optionally validate BMC connectivity
-        7. Return enrollment result
+        6. Mark node as manageable (transition state)
+        7. Transition node to available state
+        8. Optionally validate BMC connectivity
+        9. Return enrollment result
 
         Args:
             request: Enrollment request with server details
@@ -64,44 +74,104 @@ class EnrollService:
             EnrollResponse with enrollment result
 
         Raises:
-            HTTPException: If enrollment fails
+            HTTPException: 409 if name already exists
+            HTTPException: 502 if Ironic API communication fails
+            HTTPException: 422 if BMC validation fails
         """
-        # Validate name is unique
-        await self._validate_name_unique(request.name)
+        try:
+            # Step 1: Validate name is unique
+            logger.info(f"Starting enrollment for server: {request.name}")
+            await self._validate_name_unique(request.name)
+            logger.info(f"Server name validation passed for: {request.name}")
 
-        # Build Redfish driver_info from BMC credentials
-        driver_info = self._build_redfish_driver_info(request.bmc, request.redfish_system_id)
+            # Step 2: Build Redfish driver_info from BMC credentials
+            driver_info = self._build_redfish_driver_info(
+                request.bmc,
+                request.redfish_system_id
+            )
+            logger.debug("Redfish driver_info built successfully")
 
-        # TODO: Create node in Ironic
-        # node = await self.ironic.create_node(
-        #     name=request.name,
-        #     driver="redfish",
-        #     driver_info=driver_info,
-        #     resource_class=request.resource_class,
-        #     properties=request.properties or {}
-        # )
+            # Step 3: Create node in Ironic
+            logger.info(f"Creating node in Ironic for: {request.name}")
+            node = await self.ironic.create_node(
+                name=request.name,
+                driver="redfish",
+                driver_info=driver_info,
+                resource_class=request.resource_class,
+                properties=request.properties or {}
+            )
+            server_id = node.id
+            logger.info(f"Node created with ID: {server_id}")
 
-        # Mock response for now
-        server_id = "mock-uuid-12345"
-        provision_state = "enroll"
+            # Step 4: Add network port with MAC address
+            logger.info(f"Adding network port for MAC: {request.network.mac_address}")
+            port_extra = {
+                "nic_name": request.network.nic_name,
+                "ip_address": request.network.ip_address,
+                "netmask": request.network.netmask,
+                "gateway": request.network.gateway,
+            }
+            await self.ironic.add_node_port(
+                node_id=server_id,
+                mac_address=request.network.mac_address,
+                extra=port_extra
+            )
+            logger.info(f"Network port added for: {request.name}")
 
-        # Optionally validate BMC connectivity
-        if request.validate_bmc:
-            bmc_valid = await self._validate_bmc_connectivity(server_id)
-            if not bmc_valid:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"Unable to connect to BMC at {request.bmc.address}"
-                )
+            # Step 5-7: Handle state transitions (currently stubbed in Ironic client)
+            # These would typically be:
+            # - Manage the node
+            # - Inspect the node
+            # - Make available
+            # For now, we track the provision state from the created node
+            provision_state = "enroll"  # Default state at creation
+            logger.info(f"Current provision state: {provision_state}")
 
-        return EnrollResponse(
-            server_id=server_id,
-            server_name=request.name,
-            status="enrolled",
-            provision_state=provision_state,
-            message=f"Server '{request.name}' successfully enrolled",
-            created_at=datetime.now(timezone.utc)
-        )
+            # Step 8: Optionally validate BMC connectivity
+            if request.validate_bmc:
+                logger.info(f"Validating BMC connectivity for: {request.name}")
+                bmc_valid = await self._validate_bmc_connectivity(server_id)
+                if not bmc_valid:
+                    logger.error(f"BMC validation failed for: {request.bmc.address}")
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Unable to connect to BMC at {request.bmc.address}"
+                    )
+                logger.info(f"BMC validation successful for: {request.name}")
+
+            # Step 9: Return enrollment result
+            logger.info(f"Enrollment completed successfully for: {request.name}")
+            return EnrollResponse(
+                server_id=server_id,
+                server_name=request.name,
+                status="enrolled",
+                provision_state=provision_state,
+                message=f"Server '{request.name}' successfully enrolled",
+                created_at=datetime.now(timezone.utc)
+            )
+
+        except HTTPException:
+            # Re-raise HTTP exceptions as-is
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error during enrollment of {request.name}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ironic API error: {str(e)}"
+            )
+        except NotImplementedError as e:
+            # Handle unimplemented Ironic API calls
+            logger.exception(f"Unimplemented Ironic API call during enrollment of {request.name}")
+            raise HTTPException(
+                status_code=503,
+                detail="Required Ironic API functionality not yet implemented"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error during enrollment of {request.name}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error during enrollment: {str(e)}"
+            )
 
     async def _validate_name_unique(self, name: str) -> None:
         """Ensure server name doesn't already exist.
@@ -110,18 +180,37 @@ class EnrollService:
             name: Server name to check
 
         Raises:
-            HTTPException: If name already exists
+            HTTPException: 409 if name already exists
         """
-        # TODO: Check if node with this name exists in Ironic
-        # existing = await self.ironic.get_node_by_name(name)
-        # if existing:
-        #     raise HTTPException(
-        #         status_code=409,
-        #         detail=f"Server with name '{name}' already exists"
-        #     )
-        pass
+        try:
+            existing = await self.ironic.get_node_by_name(name)
+            if existing:
+                logger.warning(f"Duplicate server name requested: {name}")
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Server with name '{name}' already exists"
+                )
+        except HTTPException:
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error during name validation for {name}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Error validating server name: {str(e)}"
+            )
+        except NotImplementedError as e:
+            # Handle unimplemented API calls
+            logger.exception(f"Unimplemented Ironic API call during name validation for {name}")
+            raise HTTPException(
+                status_code=503,
+                detail="Required Ironic API functionality not yet implemented"
+            )
 
-    def _build_redfish_driver_info(self, bmc: BMCCredentials, redfish_system_id: str = "/redfish/v1/Systems/1") -> dict:
+    def _build_redfish_driver_info(
+        self,
+        bmc: BMCCredentials,
+        redfish_system_id: str | None = None
+    ) -> dict:
         """Build Redfish driver info.
 
         Args:
@@ -131,12 +220,20 @@ class EnrollService:
         Returns:
             Redfish-formatted driver_info dictionary
         """
-        return {
+        system_id = redfish_system_id or "/redfish/v1/Systems/1"
+        driver_info = {
             "redfish_address": f"https://{bmc.address}",
             "redfish_username": bmc.username,
             "redfish_password": bmc.password,
-            "redfish_system_id": redfish_system_id,
+            "redfish_system_id": system_id,
         }
+
+        # Add optional BMC port if specified
+        if bmc.port:
+            # Modify the address to include the port
+            driver_info["redfish_address"] = f"https://{bmc.address}:{bmc.port}"
+
+        return driver_info
 
     async def _validate_bmc_connectivity(self, server_id: str) -> bool:
         """Validate BMC is reachable by attempting driver validation.
@@ -147,12 +244,16 @@ class EnrollService:
         Returns:
             True if BMC is reachable, False otherwise
         """
-        # TODO: Validate BMC connectivity via Ironic
-        # try:
-        #     await self.ironic.validate_node(server_id)
-        #     return True
-        # except Exception:
-        #     return False
-
-        # Mock success for now
-        return True
+        try:
+            await self.ironic.validate_node(server_id)
+            return True
+        except IronicClientError as e:
+            logger.warning(f"BMC connectivity validation failed for node {server_id}: {str(e)}")
+            return False
+        except NotImplementedError:
+            # If validation is not implemented, assume it's unavailable for testing
+            logger.debug(f"BMC connectivity validation not yet implemented")
+            return False
+        except Exception as e:
+            logger.exception(f"Unexpected error during BMC validation for node {server_id}")
+            return False

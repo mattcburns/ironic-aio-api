@@ -1,10 +1,27 @@
 """Tests for the enrollment MCP tool."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
 from mcp_tools.enroll import enroll_server
+from services.enroll import EnrollService
+from tests.test_enroll_service import FakeIronicClientForEnroll
+
+
+@pytest.fixture(autouse=True)
+def _mock_enroll_service(monkeypatch):
+    """Automatically mock the enrollment service for all MCP tests."""
+    fake_ironic_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_ironic_client)
+
+    # Patch the dependencies module directly
+    def mock_get_enroll_service():
+        return service
+
+    # Patch in both locations that might be imported
+    monkeypatch.setattr("dependencies.get_enroll_service", mock_get_enroll_service)
+    monkeypatch.setattr("mcp_tools.enroll.get_enroll_service", mock_get_enroll_service)
 
 
 @pytest.mark.asyncio
