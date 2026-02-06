@@ -20,6 +20,19 @@ from fastapi import HTTPException
 from clients.ironic import IronicClient
 from schemas.enroll import BMCCredentials, EnrollRequest, EnrollResponse
 
+## Server Enrollment
+#
+# This module combines several steps of server enrollment and management in Ironic
+# into a single process.
+#
+# Enrollment Steps:
+# 1. Enroll the node with BMC credentials
+# 2. Add the node primary network port based on MAC address
+# 3. Configure network settings (IP, netmask, gateway) for cleaning and provisioning
+# 4. Mark the node as manageable
+# 5. Transition node to available state
+
+
 
 class EnrollService:
     """Server enrollment business logic."""
@@ -39,8 +52,10 @@ class EnrollService:
         1. Validate name is unique
         2. Build driver_info from BMC credentials
         3. Create node in Ironic
-        4. Optionally validate BMC connectivity
-        5. Return enrollment result
+        4. Add network port with MAC address
+        5. Configure network settings (IP, netmask, gateway) for cleaning operations
+        6. Optionally validate BMC connectivity
+        7. Return enrollment result
 
         Args:
             request: Enrollment request with server details
@@ -55,7 +70,7 @@ class EnrollService:
         await self._validate_name_unique(request.name)
 
         # Build Redfish driver_info from BMC credentials
-        driver_info = self._build_redfish_driver_info(request.bmc)
+        driver_info = self._build_redfish_driver_info(request.bmc, request.redfish_system_id)
 
         # TODO: Create node in Ironic
         # node = await self.ironic.create_node(
@@ -106,11 +121,12 @@ class EnrollService:
         #     )
         pass
 
-    def _build_redfish_driver_info(self, bmc: BMCCredentials) -> dict:
+    def _build_redfish_driver_info(self, bmc: BMCCredentials, redfish_system_id: str = "/redfish/v1/Systems/1") -> dict:
         """Build Redfish driver info.
 
         Args:
             bmc: BMC credentials
+            redfish_system_id: Redfish system ID (defaults to /redfish/v1/Systems/1)
 
         Returns:
             Redfish-formatted driver_info dictionary
@@ -119,7 +135,7 @@ class EnrollService:
             "redfish_address": f"https://{bmc.address}",
             "redfish_username": bmc.username,
             "redfish_password": bmc.password,
-            "redfish_system_id": "/redfish/v1/Systems/1",
+            "redfish_system_id": redfish_system_id,
         }
 
     async def _validate_bmc_connectivity(self, server_id: str) -> bool:

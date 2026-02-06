@@ -19,6 +19,16 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class NetworkInterface(BaseModel):
+    """Network interface configuration for server enrollment."""
+
+    mac_address: str = Field(description="MAC address of the network interface")
+    nic_name: str = Field(description="Network interface card name (e.g., 'eth0', 'eno1')")
+    ip_address: str = Field(description="IP address for cleaning and provisioning operations")
+    netmask: str = Field(description="Network subnet mask (e.g., '255.255.255.0' or CIDR notation)")
+    gateway: str = Field(description="Gateway IP address for network routing")
+
+
 class BMCCredentials(BaseModel):
     """BMC connection details."""
 
@@ -33,8 +43,10 @@ class EnrollRequest(BaseModel):
 
     name: str = Field(description="Unique server name")
     bmc: BMCCredentials = Field(description="BMC connection details")
+    network: NetworkInterface = Field(description="Network interface configuration for cleaning and provisioning")
     resource_class: Optional[str] = Field(default=None, description="Resource classification (e.g., 'baremetal')")
     properties: Optional[dict] = Field(default=None, description="Server properties (CPU, memory, disk info)")
+    redfish_system_id: Optional[str] = Field(default="/redfish/v1/Systems/1", description="Redfish system ID for the BMC")
     validate_bmc: bool = Field(default=True, description="Test BMC connectivity during enrollment")
 
 

@@ -15,6 +15,11 @@ async def test_enroll_server_mcp_tool_success() -> None:
         bmc_address="192.168.1.100",
         bmc_username="admin",
         bmc_password="password",
+        mac_address="00:11:22:33:44:55",
+        nic_name="eth0",
+        ip_address="10.0.0.10",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
         resource_class="baremetal",
     )
 
@@ -32,6 +37,11 @@ async def test_enroll_server_mcp_tool_minimal_params() -> None:
         bmc_address="192.168.1.101",
         bmc_username="admin",
         bmc_password="password",
+        mac_address="00:11:22:33:44:66",
+        nic_name="eth0",
+        ip_address="10.0.0.11",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
     )
 
     assert result["server_name"] == "minimal-server"
@@ -46,6 +56,11 @@ async def test_enroll_server_mcp_tool_redfish_driver() -> None:
         bmc_address="192.168.1.102",
         bmc_username="admin",
         bmc_password="password",
+        mac_address="00:11:22:33:44:77",
+        nic_name="eth0",
+        ip_address="10.0.0.12",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
     )
 
     assert result["server_name"] == "redfish-server"
@@ -60,6 +75,11 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
         bmc_address="192.168.1.103",
         bmc_username="admin",
         bmc_password="password",
+        mac_address="00:11:22:33:44:88",
+        nic_name="eth0",
+        ip_address="10.0.0.13",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
         resource_class="compute",
     )
 
