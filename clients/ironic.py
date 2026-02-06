@@ -99,15 +99,23 @@ class IronicClient:
 
     async def list_nodes(self) -> list[Node]:
         """List all Ironic nodes."""
-
-        # TODO: Use the OpenStack SDK to list Ironic nodes.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            nodes = connection.baremetal.nodes()
+            return list(nodes)
+        except Exception as exc:
+            logger.exception("Failed to list Ironic nodes")
+            raise IronicClientError("Failed to list Ironic nodes") from exc
 
     async def get_node(self, node_id: str) -> Node:
         """Get a specific node by ID or name."""
-
-        # TODO: Use the OpenStack SDK to fetch a specific Ironic node.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            node = connection.baremetal.get_node(node_id)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to get node {node_id}")
+            raise IronicClientError(f"Failed to get node {node_id}") from exc
 
     async def get_node_by_name(self, name: str) -> Node | None:
         """Get a node by name.
@@ -118,8 +126,13 @@ class IronicClient:
         Returns:
             Node if found, None otherwise
         """
-        # TODO: Use the OpenStack SDK to fetch a node by name.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            node = connection.baremetal.find_node(name, ignore_missing=True)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to get node by name {name}")
+            raise IronicClientError(f"Failed to get node by name {name}") from exc
 
     async def create_node(
         self,
@@ -141,8 +154,23 @@ class IronicClient:
         Returns:
             Created Node object
         """
-        # TODO: Use the OpenStack SDK to create a new Ironic node.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            node_data = {
+                "name": name,
+                "driver": driver,
+                "driver_info": driver_info,
+            }
+            if resource_class:
+                node_data["resource_class"] = resource_class
+            if properties:
+                node_data["properties"] = properties
+
+            node = connection.baremetal.create_node(**node_data)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to create node {name}")
+            raise IronicClientError(f"Failed to create node {name}") from exc
 
     async def add_node_port(
         self,
@@ -160,8 +188,20 @@ class IronicClient:
         Returns:
             Created Port object
         """
-        # TODO: Use the OpenStack SDK to add a port to a node.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            port_data = {
+                "node_uuid": node_id,
+                "address": mac_address,
+            }
+            if extra:
+                port_data["extra"] = extra
+
+            port = connection.baremetal.create_port(**port_data)
+            return port
+        except Exception as exc:
+            logger.exception(f"Failed to add port to node {node_id}")
+            raise IronicClientError(f"Failed to add port to node {node_id}") from exc
 
     async def validate_node(self, node_id: str) -> dict:
         """Validate node driver (test BMC connectivity).
@@ -172,8 +212,13 @@ class IronicClient:
         Returns:
             Validation result dictionary
         """
-        # TODO: Use the OpenStack SDK to validate a node.
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        try:
+            connection = await self.get_connection()
+            result = connection.baremetal.validate_node(node_id)
+            return result
+        except Exception as exc:
+            logger.exception(f"Failed to validate node {node_id}")
+            raise IronicClientError(f"Failed to validate node {node_id}") from exc
 
     async def check_connectivity(self) -> bool:
         """Check if Ironic API is reachable."""
