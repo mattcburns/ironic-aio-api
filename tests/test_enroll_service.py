@@ -510,8 +510,8 @@ async def test_build_redfish_driver_info_with_bmc_port() -> None:
 
 
 @pytest.mark.asyncio
-async def test_enroll_server_state_transition_error() -> None:
-    """Test enrollment continues even if state transitions fail."""
+async def test_enroll_server_manage_transition_error() -> None:
+    """Test enrollment fails if manage transition fails (it's required)."""
     fake_client = FakeIronicClientForEnroll(simulate_error="manage_transition_error")
     service = EnrollService(ironic_client=fake_client)
 
@@ -532,7 +532,37 @@ async def test_enroll_server_state_transition_error() -> None:
         validate_bmc=False,
     )
 
-    # Should not raise - transition errors are logged but don't fail enrollment
+    # Manage transition failure fails enrollment (manage is required)
+    with pytest.raises(HTTPException) as exc_info:
+        await service.enroll_server(request)
+
+    assert exc_info.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_provide_transition_error() -> None:
+    """Test enrollment continues if provide transition fails."""
+    fake_client = FakeIronicClientForEnroll(simulate_error="provide_transition_error")
+    service = EnrollService(ironic_client=fake_client)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+        validate_bmc=False,
+    )
+
+    # Provide transition failure doesn't fail enrollment (manage succeeded)
     result = await service.enroll_server(request)
     assert result.status == "enrolled"
     assert result.server_name == "test-server"

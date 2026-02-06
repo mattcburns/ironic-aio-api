@@ -56,8 +56,9 @@ class EnrollService:
         """
         Enroll a new server into Ironic.
 
-        State transitions are initiated but not awaited. Returns immediately
-        with the current state. Use get_enrollment_status() to poll for completion.
+        Manage transition is synchronous (required before available).
+        Provide transition is asynchronous (initiated but not awaited).
+        Returns immediately with the current state. Use get_enrollment_status() to poll for completion.
 
         Steps:
         1. Validate name is unique
@@ -65,8 +66,8 @@ class EnrollService:
         3. Create node in Ironic
         4. Add network port with MAC address
         5. Configure network settings (IP, netmask, gateway) for cleaning operations
-        6. Initiate transition to manageable (don't wait for completion)
-        7. Initiate transition to available state (don't wait for completion)
+        6. Transition to manageable state (synchronous, blocks until completion)
+        7. Initiate transition to available state (asynchronous, doesn't block)
         8. Optionally validate BMC connectivity
         9. Return enrollment result with current state
 
@@ -78,7 +79,7 @@ class EnrollService:
 
         Raises:
             HTTPException: 409 if name already exists
-            HTTPException: 502 if Ironic API communication fails
+            HTTPException: 502 if Ironic API communication fails or manage transition fails
             HTTPException: 422 if BMC validation fails
         """
         try:
@@ -121,22 +122,28 @@ class EnrollService:
             )
             logger.info(f"Network port added for: {request.name}")
 
-            # Step 5-7: Initiate state transitions (don't wait for completion)
-            logger.info(f"Initiating state transition to manage for: {request.name}")
+            # Step 5-7: Handle state transitions
+            # Manage transition is synchronous (required before available)
+            logger.info(f"Transitioning node to manageable state for: {request.name}")
             try:
-                await self.ironic.set_node_provision_state(server_id, "manage")
-                logger.info(f"State transition to manage initiated")
+                node = await self.ironic.set_node_provision_state(server_id, "manage")
+                provision_state = node.provision_state
+                logger.info(f"Node transitioned to state: {provision_state}")
             except IronicClientError as e:
-                logger.warning(f"Failed to initiate manage transition: {str(e)}")
-                # Don't fail enrollment - node was created successfully
+                logger.exception(f"Failed to transition node to manage: {str(e)}")
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Failed to transition node to manage state: {str(e)}"
+                )
 
+            # Provide transition is asynchronous (initiated but not awaited)
             logger.info(f"Initiating state transition to provide for: {request.name}")
             try:
                 await self.ironic.set_node_provision_state(server_id, "provide")
                 logger.info(f"State transition to provide initiated")
             except IronicClientError as e:
                 logger.warning(f"Failed to initiate provide transition: {str(e)}")
-                # Don't fail enrollment - node was created successfully
+                # Non-critical error - node is already in manageable state
 
             # Get current state from Ironic and return immediately
             current_node = await self.ironic.get_node(server_id)

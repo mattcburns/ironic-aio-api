@@ -9,9 +9,10 @@
 This design refactors the server enrollment workflow to use non-blocking state transitions. Node state transitions in Ironic (particularly the transition to "available" which performs hardware cleaning) can take several minutes to complete. The current enrollment implementation blocks waiting for these transitions, which is inefficient and can cause API timeouts.
 
 This design implements an async-friendly pattern where:
-1. Enrollment initiates state transitions but returns immediately
-2. A separate status endpoint allows clients to poll for transition completion
-3. Users get immediate feedback on enrollment success with clear messaging about ongoing operations
+1. Enrollment transitions the node to "manage" state (synchronously - required before available)
+2. Enrollment initiates transition to "available" but returns immediately (asynchronously)
+3. A separate status endpoint allows clients to poll for transition completion
+4. Users get immediate feedback on enrollment success with clear messaging about ongoing operations
 
 ## Business Requirements
 
@@ -66,41 +67,46 @@ Clients check enrollment status by polling a dedicated endpoint that queries Iro
 
 ### 1. Update EnrollService Methods
 
-#### `enroll_server()` - Non-blocking transitions
+#### `enroll_server()` - Mixed blocking/non-blocking transitions
 
 Changes:
-- Wrap state transition calls in try-except blocks
-- Log transition errors but don't fail enrollment
+- Manage transition: Wait for completion (synchronous, returns immediately as it's quick)
+- Provide transition: Initiate but don't wait (asynchronous, initiated in background)
+- Provide transition failures are logged but don't fail enrollment
 - Get current node state after initiating transitions
-- Return immediately with status and current provision_state
-- Update response message to indicate transitions are ongoing
+- Return immediately with current provision_state
 
 ```python
 async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
     """
     Enroll a new server into Ironic.
 
-    State transitions are initiated but not awaited. Returns immediately
-    with the current state. Use get_enrollment_status() to poll for completion.
+    Manage transition is synchronous (fast, required), provide transition is asynchronous.
+    Returns immediately with the current state. Use get_enrollment_status() to poll for completion.
     """
     # ... node creation and port setup ...
 
-    # Initiate transitions (don't wait for completion)
-    logger.info(f"Initiating state transition to manage for: {request.name}")
+    # Manage transition is synchronous (required, fast)
+    logger.info(f"Transitioning node to manageable state for: {request.name}")
     try:
-        await self.ironic.set_node_provision_state(server_id, "manage")
-        logger.info(f"State transition to manage initiated")
+        node = await self.ironic.set_node_provision_state(server_id, "manage")
+        provision_state = node.provision_state
+        logger.info(f"Node transitioned to state: {provision_state}")
     except IronicClientError as e:
-        logger.warning(f"Failed to initiate manage transition: {str(e)}")
-        # Don't fail enrollment - node was created successfully
+        logger.exception(f"Failed to transition node to manage: {str(e)}")
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to transition node to manage state: {str(e)}"
+        )
 
+    # Provide transition is asynchronous (initiated but not awaited)
     logger.info(f"Initiating state transition to provide for: {request.name}")
     try:
         await self.ironic.set_node_provision_state(server_id, "provide")
         logger.info(f"State transition to provide initiated")
     except IronicClientError as e:
         logger.warning(f"Failed to initiate provide transition: {str(e)}")
-        # Don't fail enrollment - node was created successfully
+        # Non-critical error - node is already in manageable state
 
     # Get current state from Ironic and return immediately
     current_node = await self.ironic.get_node(server_id)
@@ -113,9 +119,9 @@ async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
         provision_state=provision_state,
         message=f"Server '{request.name}' successfully enrolled. "
                 f"Current state: {provision_state}. "
-                f"State transitions may take several minutes. "
+                f"Transition to available may take several minutes. "
                 f"Use GET /servers/{server_id}/enrollment-status to check progress.",
-        created_at=datetime.now(timezone.utc)  # Response timestamp, not enrollment start time
+        created_at=datetime.now(timezone.utc)
     )
 ```
 
@@ -365,13 +371,16 @@ If the API service restarts during enrollment:
 
 ## Acceptance Criteria
 
-- [ ] `enroll_server()` returns within ~5 seconds regardless of transition duration
-- [ ] State transition errors are logged but don't fail enrollment
+- [ ] `enroll_server()` returns within ~5 seconds regardless of provide transition duration
+- [ ] Manage transition is synchronous and blocks until completion
+- [ ] Provide transition is asynchronous and doesn't block response
+- [ ] Provide transition errors are logged but don't fail enrollment
 - [ ] New `get_enrollment_status()` service method implemented
 - [ ] New GET `/servers/{id}/enrollment-status` endpoint available
 - [ ] New `get_enrollment_status()` MCP tool available
+- [ ] Response includes current provision_state from manage transition
 - [ ] Response message includes URL to status endpoint
-- [ ] All tests pass with new async pattern
+- [ ] All tests pass with async provide pattern
 - [ ] No local state is maintained (all queries go to Ironic)
 
 ## Migration Notes
