@@ -18,6 +18,13 @@ async def test_enroll_server_endpoint_success(client) -> None:
             "username": "admin",
             "password": "password",
         },
+        "network": {
+            "mac_address": "00:11:22:33:44:55",
+            "nic_name": "eth0",
+            "ip_address": "10.0.0.10",
+            "netmask": "255.255.255.0",
+            "gateway": "10.0.0.1",
+        },
         "resource_class": "baremetal",
         "validate_bmc": True,
     }
@@ -41,6 +48,13 @@ async def test_enroll_server_endpoint_minimal_request(client) -> None:
             "address": "192.168.1.101",
             "username": "admin",
             "password": "password",
+        },
+        "network": {
+            "mac_address": "00:11:22:33:44:66",
+            "nic_name": "eth0",
+            "ip_address": "10.0.0.11",
+            "netmask": "255.255.255.0",
+            "gateway": "10.0.0.1",
         },
     }
 
@@ -74,6 +88,13 @@ async def test_enroll_server_endpoint_with_properties(client) -> None:
             "username": "admin",
             "password": "password",
         },
+        "network": {
+            "mac_address": "00:11:22:33:44:55",
+            "nic_name": "eth0",
+            "ip_address": "10.0.0.10",
+            "netmask": "255.255.255.0",
+            "gateway": "10.0.0.1",
+        },
         "properties": {
             "cpu_arch": "x86_64",
             "cpus": 16,
@@ -96,6 +117,13 @@ async def test_enroll_server_endpoint_without_validation(client) -> None:
             "address": "192.168.1.100",
             "username": "admin",
             "password": "password",
+        },
+        "network": {
+            "mac_address": "00:11:22:33:44:55",
+            "nic_name": "eth0",
+            "ip_address": "10.0.0.10",
+            "netmask": "255.255.255.0",
+            "gateway": "10.0.0.1",
         },
         "validate_bmc": False,
     }

@@ -43,6 +43,14 @@ Internal customers need to:
 ### 1. Enroll Schema (schemas/enroll.py)
 
 ```python
+class NetworkInterface(BaseModel):
+    """Network interface configuration for server enrollment."""
+    mac_address: str  # MAC address of the network interface
+    nic_name: str  # NIC name (e.g., 'eth0', 'eno1')
+    ip_address: str  # IP address for cleaning and provisioning
+    netmask: str  # Network subnet mask
+    gateway: str  # Gateway IP address
+
 class BMCCredentials(BaseModel):
     """BMC connection details."""
     address: str  # BMC IP or hostname
@@ -54,6 +62,7 @@ class EnrollRequest(BaseModel):
     """Request to enroll a new server."""
     name: str  # Unique server name
     bmc: BMCCredentials
+    network: NetworkInterface  # Network configuration
     resource_class: Optional[str] = None  # e.g., "baremetal"
     properties: Optional[dict] = None  # CPU, memory, disk info
     validate_bmc: bool = True  # Test BMC connectivity
@@ -137,6 +146,11 @@ async def enroll_server(
     bmc_address: str,
     bmc_username: str,
     bmc_password: str,
+    mac_address: str,
+    nic_name: str,
+    ip_address: str,
+    netmask: str,
+    gateway: str,
     resource_class: Optional[str] = None
 ) -> dict:
     """
@@ -147,6 +161,11 @@ async def enroll_server(
         bmc_address: BMC IP address or hostname
         bmc_username: BMC username
         bmc_password: BMC password
+        mac_address: MAC address of the network interface
+        nic_name: Network interface card name (e.g., 'eth0', 'eno1')
+        ip_address: IP address for cleaning and provisioning operations
+        netmask: Network subnet mask (e.g., '255.255.255.0')
+        gateway: Gateway IP address for network routing
         resource_class: Optional resource classification
 
     Returns:
@@ -159,6 +178,13 @@ async def enroll_server(
             address=bmc_address,
             username=bmc_username,
             password=bmc_password,
+        ),
+        network=NetworkInterface(
+            mac_address=mac_address,
+            nic_name=nic_name,
+            ip_address=ip_address,
+            netmask=netmask,
+            gateway=gateway,
         ),
         resource_class=resource_class,
     )

@@ -109,6 +109,72 @@ class IronicClient:
         # TODO: Use the OpenStack SDK to fetch a specific Ironic node.
         raise NotImplementedError("Ironic API call not implemented yet.")
 
+    async def get_node_by_name(self, name: str) -> Node | None:
+        """Get a node by name.
+
+        Args:
+            name: Name of the node to retrieve
+
+        Returns:
+            Node if found, None otherwise
+        """
+        # TODO: Use the OpenStack SDK to fetch a node by name.
+        raise NotImplementedError("Ironic API call not implemented yet.")
+
+    async def create_node(
+        self,
+        name: str,
+        driver: str,
+        driver_info: dict,
+        resource_class: str | None = None,
+        properties: dict | None = None,
+    ) -> Node:
+        """Create a new node in Ironic.
+
+        Args:
+            name: Unique name for the node
+            driver: Driver to use (e.g., 'redfish')
+            driver_info: Driver-specific configuration
+            resource_class: Resource class for the node
+            properties: Node properties (CPU, memory, disk, etc.)
+
+        Returns:
+            Created Node object
+        """
+        # TODO: Use the OpenStack SDK to create a new Ironic node.
+        raise NotImplementedError("Ironic API call not implemented yet.")
+
+    async def add_node_port(
+        self,
+        node_id: str,
+        mac_address: str,
+        extra: dict | None = None,
+    ) -> object:
+        """Add a network port to a node.
+
+        Args:
+            node_id: UUID of the node
+            mac_address: MAC address of the port
+            extra: Additional port configuration
+
+        Returns:
+            Created Port object
+        """
+        # TODO: Use the OpenStack SDK to add a port to a node.
+        raise NotImplementedError("Ironic API call not implemented yet.")
+
+    async def validate_node(self, node_id: str) -> dict:
+        """Validate node driver (test BMC connectivity).
+
+        Args:
+            node_id: UUID of the node to validate
+
+        Returns:
+            Validation result dictionary
+        """
+        # TODO: Use the OpenStack SDK to validate a node.
+        raise NotImplementedError("Ironic API call not implemented yet.")
+
     async def check_connectivity(self) -> bool:
         """Check if Ironic API is reachable."""
 

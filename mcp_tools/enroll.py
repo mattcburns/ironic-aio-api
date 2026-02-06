@@ -17,7 +17,7 @@ from typing import Optional
 
 from app import mcp
 from dependencies import get_enroll_service
-from schemas.enroll import BMCCredentials, EnrollRequest
+from schemas.enroll import BMCCredentials, EnrollRequest, NetworkInterface
 
 
 @mcp.tool()
@@ -26,7 +26,13 @@ async def enroll_server(
     bmc_address: str,
     bmc_username: str,
     bmc_password: str,
-    resource_class: Optional[str] = None
+    mac_address: str,
+    nic_name: str,
+    ip_address: str,
+    netmask: str,
+    gateway: str,
+    resource_class: Optional[str] = None,
+    redfish_system_id: Optional[str] = None
 ) -> dict:
     """
     Enroll a new physical server into Ironic management.
@@ -36,7 +42,13 @@ async def enroll_server(
         bmc_address: BMC IP address or hostname
         bmc_username: BMC username
         bmc_password: BMC password
+        mac_address: MAC address of the network interface
+        nic_name: Network interface card name (e.g., 'eth0', 'eno1')
+        ip_address: IP address for cleaning and provisioning operations
+        netmask: Network subnet mask (e.g., '255.255.255.0')
+        gateway: Gateway IP address for network routing
         resource_class: Optional resource classification
+        redfish_system_id: Optional Redfish system ID (defaults to /redfish/v1/Systems/1)
 
     Returns:
         Enrolled server details including assigned ID
@@ -49,7 +61,15 @@ async def enroll_server(
             username=bmc_username,
             password=bmc_password,
         ),
+        network=NetworkInterface(
+            mac_address=mac_address,
+            nic_name=nic_name,
+            ip_address=ip_address,
+            netmask=netmask,
+            gateway=gateway,
+        ),
         resource_class=resource_class,
+        **({"redfish_system_id": redfish_system_id} if redfish_system_id else {})
     )
     result = await service.enroll_server(request)
     return result.model_dump()
