@@ -73,3 +73,23 @@ async def enroll_server(
     )
     result = await service.enroll_server(request)
     return result.model_dump()
+
+
+@mcp.tool()
+async def get_enrollment_status(server_id: str) -> dict:
+    """
+    Get current enrollment status of a server.
+
+    Queries Ironic for the node's current state. Use this to poll for completion
+    of state transitions initiated during server enrollment. The server is fully
+    ready when provision_state becomes 'available'.
+
+    Args:
+        server_id: UUID of the enrolled server
+
+    Returns:
+        Server enrollment status including current provision state from Ironic
+    """
+    service = get_enroll_service()
+    result = await service.get_enrollment_status(server_id)
+    return result.model_dump()

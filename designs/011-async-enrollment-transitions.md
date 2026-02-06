@@ -1,6 +1,6 @@
 # Design 011: Async Enrollment State Transitions
 
-**Status:** To be implemented
+**Status:** Implemented
 
 **Depends On:** Design 003
 

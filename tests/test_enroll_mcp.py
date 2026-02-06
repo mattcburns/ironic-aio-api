@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from mcp_tools.enroll import enroll_server
+from mcp_tools.enroll import enroll_server, get_enrollment_status
 from services.enroll import EnrollService
 from tests.test_enroll_service import FakeIronicClientForEnroll
 
@@ -102,6 +102,32 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
 
     assert result["server_name"] == "classified-server"
     assert result["status"] == "enrolled"
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_status_mcp_tool() -> None:
+    """Test getting enrollment status via MCP tool."""
+    # First enroll a server
+    enroll_result = await enroll_server(
+        name="status-test-server",
+        bmc_address="192.168.1.104",
+        bmc_username="admin",
+        bmc_password="password",
+        mac_address="00:11:22:33:44:99",
+        nic_name="eth0",
+        ip_address="10.0.0.14",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
+    )
+    server_id = enroll_result["server_id"]
+
+    # Get status
+    status_result = await get_enrollment_status(server_id)
+
+    assert status_result["server_id"] == server_id
+    assert status_result["server_name"] == "status-test-server"
+    assert "provision_state" in status_result
+    assert "message" in status_result
 
 
 

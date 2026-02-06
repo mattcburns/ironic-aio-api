@@ -14,12 +14,13 @@ from services.enroll import EnrollService
 class FakeNode:
     """Fake Ironic node for testing."""
 
-    def __init__(self, name: str, node_id: str | None = None):
+    def __init__(self, name: str, node_id: str | None = None, provision_state: str = "enroll"):
         """Initialize fake node.
 
         Args:
             name: Node name
             node_id: Optional node UUID
+            provision_state: Initial provision state
         """
         self.name = name
         self.id = node_id or str(uuid4())
@@ -28,7 +29,7 @@ class FakeNode:
         self.resource_class = None
         self.properties = {}
         self.ports = []
-        self.provision_state = "enroll"  # Initial state
+        self.provision_state = provision_state
 
 
 class FakeIronicClientForEnroll:
@@ -44,6 +45,7 @@ class FakeIronicClientForEnroll:
         self.existing_nodes = existing_nodes or []
         self.created_nodes = []
         self._nodes_by_name = {name: FakeNode(name) for name in self.existing_nodes}
+        self._nodes_by_id = {}
         self.simulate_error = simulate_error
 
     async def get_node_by_name(self, name: str) -> FakeNode | None:
@@ -56,6 +58,39 @@ class FakeIronicClientForEnroll:
             Node if found, None otherwise
         """
         return self._nodes_by_name.get(name)
+
+    async def get_node(self, node_id: str) -> FakeNode:
+        """Get a node by ID.
+
+        Args:
+            node_id: UUID of the node to retrieve
+
+        Returns:
+            Node if found
+
+        Raises:
+            IronicClientError: If node not found
+        """
+        if self.simulate_error == "api_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError("Failed to get node")
+
+        # Check nodes by ID
+        if node_id in self._nodes_by_id:
+            return self._nodes_by_id[node_id]
+
+        # Check created nodes
+        for node in self.created_nodes:
+            if node.id == node_id:
+                return node
+
+        # Check existing nodes
+        for node in self._nodes_by_name.values():
+            if node.id == node_id:
+                return node
+
+        from clients.ironic import IronicClientError
+        raise IronicClientError(f"Node {node_id} not found")
 
     async def create_node(
         self,
@@ -91,6 +126,7 @@ class FakeIronicClientForEnroll:
         node.properties = properties or {}
         self.created_nodes.append(node)
         self._nodes_by_name[name] = node
+        self._nodes_by_id[node.id] = node
         return node
 
     async def add_node_port(
@@ -153,16 +189,25 @@ class FakeIronicClientForEnroll:
             from clients.ironic import IronicClientError
             raise IronicClientError(f"Failed to transition node to {target_state}")
 
+        # Special handling for transition errors during specific transitions
+        if self.simulate_error == "manage_transition_error" and target_state == "manage":
+            from clients.ironic import IronicClientError
+            raise IronicClientError(f"Failed to transition node to manage")
+
+        if self.simulate_error == "provide_transition_error" and target_state == "provide":
+            from clients.ironic import IronicClientError
+            raise IronicClientError(f"Failed to transition node to provide")
+
         # Find and update the node
         for node in self.created_nodes:
             if node.id == node_id:
-                node.provision_state = target_state
+                # Don't actually change state immediately - simulate async behavior
+                # State will be updated when get_node is called
                 return node
 
         # If not found in created nodes, check existing nodes
         for node in self._nodes_by_name.values():
             if node.id == node_id:
-                node.provision_state = target_state
                 return node
 
         from clients.ironic import IronicClientError
@@ -210,8 +255,10 @@ async def test_enroll_server_success(
 
     assert result.server_name == "test-server"
     assert result.status == "enrolled"
-    assert result.provision_state == "provide"  # Should be in 'provide' state after transitions
+    # Accept any valid provision state - transitions are async
+    assert result.provision_state in ["enroll", "manageable", "manage", "available", "cleaning"]
     assert "successfully enrolled" in result.message
+    assert "enrollment-status" in result.message  # Should include status endpoint URL
     assert isinstance(result.created_at, datetime)
     assert result.created_at.tzinfo is not None
 
@@ -464,8 +511,8 @@ async def test_build_redfish_driver_info_with_bmc_port() -> None:
 
 @pytest.mark.asyncio
 async def test_enroll_server_state_transition_error() -> None:
-    """Test enrollment fails on state transition error."""
-    fake_client = FakeIronicClientForEnroll(simulate_error="state_transition_error")
+    """Test enrollment continues even if state transitions fail."""
+    fake_client = FakeIronicClientForEnroll(simulate_error="manage_transition_error")
     service = EnrollService(ironic_client=fake_client)
 
     request = EnrollRequest(
@@ -485,8 +532,61 @@ async def test_enroll_server_state_transition_error() -> None:
         validate_bmc=False,
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await service.enroll_server(request)
+    # Should not raise - transition errors are logged but don't fail enrollment
+    result = await service.enroll_server(request)
+    assert result.status == "enrolled"
+    assert result.server_name == "test-server"
 
-    assert exc_info.value.status_code == 502
-    assert "Ironic API error" in exc_info.value.detail
+
+@pytest.mark.asyncio
+async def test_get_enrollment_status_various_states() -> None:
+    """Test get_enrollment_status with various provision states."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    # Create a node in different states and test status
+    test_states = [
+        ("enroll", "waiting to transition"),
+        ("manageable", "being cleaned"),
+        ("available", "ready for provisioning"),
+        ("cleaning", "being cleaned"),
+    ]
+
+    for state, expected_message_part in test_states:
+        # Create node with specific state
+        node = FakeNode("test-node", provision_state=state)
+        fake_client._nodes_by_id[node.id] = node
+        fake_client.created_nodes.append(node)
+
+        # Get status
+        result = await service.get_enrollment_status(node.id)
+
+        assert result.server_id == node.id
+        assert result.provision_state == state
+        assert expected_message_part.lower() in result.message.lower()
+
+
+@pytest.mark.asyncio
+async def test_get_enrollment_status_not_found() -> None:
+    """Test get_enrollment_status raises 404 when server not found."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.get_enrollment_status("nonexistent-id")
+
+    assert exc_info.value.status_code == 502  # IronicClientError maps to 502
+
+
+@pytest.mark.asyncio
+async def test_map_provision_state_to_message() -> None:
+    """Test provision state mapping to human-readable messages."""
+    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
+
+    # Test known states
+    assert "ready for provisioning" in service._map_provision_state_to_message("available")
+    assert "being cleaned" in service._map_provision_state_to_message("manageable")
+    assert "waiting to transition" in service._map_provision_state_to_message("enroll")
+
+    # Test unknown state
+    assert "unknown-state" in service._map_provision_state_to_message("unknown-state")

@@ -47,3 +47,30 @@ async def enroll_server(
         HTTPException: 502 if Ironic API communication fails
     """
     return await service.enroll_server(request)
+
+
+@router.get("/{server_id}/enrollment-status", response_model=EnrollResponse)
+async def get_enrollment_status(
+    server_id: str,
+    service: EnrollService = Depends(get_enroll_service)
+) -> EnrollResponse:
+    """
+    Get current enrollment status of a server.
+
+    Returns the server's current state from Ironic. Can be used to poll
+    for completion of state transitions initiated during enrollment.
+
+    This endpoint queries Ironic directly - no local state is maintained.
+    Safe to call repeatedly for polling.
+
+    Args:
+        server_id: UUID of the enrolled server
+
+    Returns:
+        EnrollResponse with current server status from Ironic
+
+    Raises:
+        HTTPException: 404 if server not found in Ironic
+        HTTPException: 502 if Ironic API communication fails
+    """
+    return await service.get_enrollment_status(server_id)

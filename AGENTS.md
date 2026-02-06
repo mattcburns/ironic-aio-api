@@ -32,10 +32,12 @@ See README.md for development setup and testing commands.
 - **Complete implementation required**: A design is only complete when ALL components of the design document are implemented
 - When implementation is complete, update the design document to mark it as "implemented"
 - Breaking large features into multiple small, numbered designs is preferred over single large designs
+- Once design documents are written and Implemented they should not be changed. Future design changes should be a new design.
 
 ### Branching Strategy
 - **Create branches from master**: Always create new branches off of `master`, never create sub-branches of existing feature branches
 - **One branch per design**: Each design implementation gets a single dedicated branch
+- **BEFORE starting implementation create a branch**
 - Branch naming should reference the design number (e.g., `design-001-api-setup`)
 - Infrastructure and tooling designs follow the same branching discipline
 
