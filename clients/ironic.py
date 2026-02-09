@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import httpx
+from openstack import exceptions as os_exceptions
 from openstack import connection as os_connection
 
 from config import Settings
@@ -112,13 +113,20 @@ class IronicClient:
         try:
             connection = await self.get_connection()
             if ignore_missing:
-                node = connection.baremetal.get_node(
-                    node_id,
-                    ignore_missing=ignore_missing,
-                )
-            else:
-                node = connection.baremetal.get_node(node_id)
-            return node
+                try:
+                    return connection.baremetal.get_node(
+                        node_id,
+                        ignore_missing=True,
+                    )
+                except TypeError:
+                    return connection.baremetal.get_node(node_id)
+
+            return connection.baremetal.get_node(node_id)
+        except os_exceptions.ResourceNotFound:
+            if ignore_missing:
+                return None
+            logger.exception(f"Node {node_id} was not found")
+            raise IronicClientError(f"Failed to get node {node_id}")
         except Exception as exc:
             logger.exception(f"Failed to get node {node_id}")
             raise IronicClientError(f"Failed to get node {node_id}") from exc

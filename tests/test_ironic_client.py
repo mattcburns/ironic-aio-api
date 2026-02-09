@@ -3,6 +3,7 @@
 import pytest
 
 import httpx
+from openstack import exceptions as os_exceptions
 
 from clients.ironic import IronicClient, IronicClientError
 from config import Settings
@@ -241,6 +242,57 @@ async def test_get_node_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert node.id == "node-123"
     assert node.name == "test-node"
+
+
+@pytest.mark.asyncio
+async def test_get_node_ignore_missing_with_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ignore_missing works when SDK does not accept the parameter."""
+
+    class MockNode:
+        id = "node-123"
+        name = "test-node"
+
+    class MockBaremetal:
+        def get_node(self, node_id):
+            return MockNode()
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    node = await client.get_node("node-123", ignore_missing=True)
+
+    assert node is not None
+    assert node.id == "node-123"
+
+
+@pytest.mark.asyncio
+async def test_get_node_ignore_missing_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ignore_missing returns None when node is missing."""
+
+    class MockBaremetal:
+        def get_node(self, node_id):
+            raise os_exceptions.ResourceNotFound("not found")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    node = await client.get_node("node-123", ignore_missing=True)
+
+    assert node is None
 
 
 @pytest.mark.asyncio
