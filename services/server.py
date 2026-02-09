@@ -16,7 +16,9 @@
 from datetime import datetime, timezone
 from typing import Optional
 
-from clients.ironic import IronicClient
+from fastapi import HTTPException
+
+from clients.ironic import IronicClient, IronicClientError
 from schemas.server import ServerListResponse, ServerSummary
 
 
@@ -52,19 +54,30 @@ class ServerService:
         Returns:
             ServerListResponse with filtered servers and pagination info
         """
-        # TODO: Query Ironic nodes
-        # nodes = await self.ironic.list_nodes()
+        try:
+            nodes = await self.ironic.list_nodes()
+        except IronicClientError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to communicate with Ironic",
+            ) from exc
 
-        # TODO: Apply filters
-        # if provision_state:
-        #     nodes = [n for n in nodes if n.provision_state == provision_state]
-        # if resource_class:
-        #     nodes = [n for n in nodes if n.resource_class == resource_class]
-        # if available_only:
-        #     nodes = [n for n in nodes if self._is_available(n)]
+        if provision_state:
+            nodes = [
+                node
+                for node in nodes
+                if getattr(node, "provision_state", None) == provision_state
+            ]
+        if resource_class:
+            nodes = [
+                node
+                for node in nodes
+                if getattr(node, "resource_class", None) == resource_class
+            ]
+        if available_only:
+            nodes = [node for node in nodes if self._is_available(node)]
 
-        # Mock implementation for now
-        all_servers = []
+        all_servers = [self._node_to_summary(node) for node in nodes]
 
         # Apply pagination
         total = len(all_servers)
@@ -90,17 +103,23 @@ class ServerService:
             ServerSummary with server details
 
         Raises:
-            ValueError: If server not found
+            HTTPException: If server not found or Ironic is unreachable
         """
-        # TODO: Fetch node from Ironic
-        # node = await self.ironic.get_node(server_id)
-        # if node is None:
-        #     raise ValueError(f"Server '{server_id}' not found")
+        try:
+            node = await self.ironic.get_node(server_id, ignore_missing=True)
+        except IronicClientError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to communicate with Ironic",
+            ) from exc
 
-        # TODO: Transform node to ServerSummary
-        # return self._node_to_summary(node)
+        if node is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Server '{server_id}' not found",
+            )
 
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        return self._node_to_summary(node)
 
     def _is_available(self, node) -> bool:
         """
@@ -117,9 +136,18 @@ class ServerService:
         Returns:
             True if node is available for provisioning, False otherwise
         """
-        # TODO: Implement business logic
-        # Available if: provision_state == 'available' and not in maintenance and power_state == 'power off'
-        return False
+        provision_state = getattr(node, "provision_state", None)
+        maintenance = getattr(node, "maintenance", None)
+        power_state = getattr(node, "power_state", None)
+
+        if provision_state is None or maintenance is None or power_state is None:
+            return False
+
+        return (
+            provision_state == "available"
+            and maintenance is False
+            and power_state == "power off"
+        )
 
     def _node_to_summary(self, node) -> ServerSummary:
         """
@@ -131,6 +159,44 @@ class ServerService:
         Returns:
             ServerSummary with transformed data
         """
-        # TODO: Transform node object to ServerSummary
-        # This should extract relevant properties and compute is_available
-        raise NotImplementedError("Ironic API call not implemented yet.")
+        node_id = getattr(node, "id", None)
+        if not isinstance(node_id, str) or not node_id:
+            node_id = getattr(node, "uuid", None)
+        if not isinstance(node_id, str) or not node_id:
+            node_id = getattr(node, "name", "unknown")
+
+        provision_state = getattr(node, "provision_state", None) or "unknown"
+        power_state = getattr(node, "power_state", None)
+        resource_class = getattr(node, "resource_class", None)
+        properties = getattr(node, "properties", None) or {}
+
+        created_at = self._parse_datetime(getattr(node, "created_at", None))
+        updated_at = self._parse_datetime(getattr(node, "updated_at", None))
+
+        return ServerSummary(
+            id=str(node_id),
+            name=getattr(node, "name", "unknown"),
+            provision_state=provision_state,
+            power_state=power_state,
+            resource_class=resource_class,
+            is_available=self._is_available(node),
+            properties=properties,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    def _parse_datetime(self, value: object) -> datetime:
+        """Parse datetime fields from Ironic node data."""
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+                if parsed.tzinfo is None:
+                    return parsed.replace(tzinfo=timezone.utc)
+                return parsed
+            except ValueError:
+                return datetime.now(timezone.utc)
+        return datetime.now(timezone.utc)
