@@ -107,11 +107,17 @@ class IronicClient:
             logger.exception("Failed to list Ironic nodes")
             raise IronicClientError("Failed to list Ironic nodes") from exc
 
-    async def get_node(self, node_id: str) -> Node:
+    async def get_node(self, node_id: str, ignore_missing: bool = False) -> Node | None:
         """Get a specific node by ID or name."""
         try:
             connection = await self.get_connection()
-            node = connection.baremetal.get_node(node_id)
+            if ignore_missing:
+                node = connection.baremetal.get_node(
+                    node_id,
+                    ignore_missing=ignore_missing,
+                )
+            else:
+                node = connection.baremetal.get_node(node_id)
             return node
         except Exception as exc:
             logger.exception(f"Failed to get node {node_id}")

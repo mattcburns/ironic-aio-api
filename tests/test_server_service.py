@@ -1,11 +1,12 @@
 """Tests for the server service."""
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
+from fastapi import HTTPException
 
-from schemas.server import ServerListResponse, ServerSummary
+from schemas.server import ServerListResponse
 from services.server import ServerService
 
 
@@ -24,11 +25,13 @@ class FakeIronicClientForServer:
         """Return list of fake nodes."""
         return self.nodes
 
-    async def get_node(self, node_id: str) -> Mock | None:
+    async def get_node(self, node_id: str, ignore_missing: bool = False) -> Mock | None:
         """Get a specific node by ID or name."""
         for node in self.nodes:
             if node.uuid == node_id or node.name == node_id:
                 return node
+        if ignore_missing:
+            return None
         return None
 
 
@@ -109,8 +112,6 @@ async def test_list_servers_empty(
     """Test listing servers when none exist."""
     service = ServerService(ironic_client=fake_ironic_client_empty)
 
-    # Note: This test will fail until Ironic client calls are implemented
-    # For now, we expect an empty list since the service uses mock data
     result = await service.list_servers()
 
     assert isinstance(result, ServerListResponse)
@@ -127,10 +128,11 @@ async def test_list_servers_success(
     """Test listing all servers successfully."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # Note: This test will pass when Ironic client calls are implemented
     result = await service.list_servers()
 
     assert isinstance(result, ServerListResponse)
+    assert result.total == 3
+    assert len(result.servers) == 3
     assert result.page == 1
     assert result.page_size == 50
 
@@ -146,6 +148,7 @@ async def test_list_servers_with_pagination(
 
     assert result.page == 1
     assert result.page_size == 2
+    assert len(result.servers) == 2
 
 
 @pytest.mark.asyncio
@@ -155,10 +158,11 @@ async def test_list_servers_filter_by_provision_state(
     """Test filtering servers by provision state."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # Note: Filter logic will be implemented when Ironic calls are enabled
     result = await service.list_servers(provision_state="available")
 
     assert isinstance(result, ServerListResponse)
+    assert result.total == 2
+    assert {server.id for server in result.servers} == {"node-1", "node-3"}
 
 
 @pytest.mark.asyncio
@@ -168,10 +172,11 @@ async def test_list_servers_filter_by_resource_class(
     """Test filtering servers by resource class."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # Note: Filter logic will be implemented when Ironic calls are enabled
     result = await service.list_servers(resource_class="baremetal")
 
     assert isinstance(result, ServerListResponse)
+    assert result.total == 2
+    assert {server.id for server in result.servers} == {"node-1", "node-2"}
 
 
 @pytest.mark.asyncio
@@ -181,10 +186,11 @@ async def test_list_servers_available_only(
     """Test filtering for available servers only."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # Note: Filter logic will be implemented when Ironic calls are enabled
     result = await service.list_servers(available_only=True)
 
     assert isinstance(result, ServerListResponse)
+    assert result.total == 2
+    assert {server.id for server in result.servers} == {"node-1", "node-3"}
 
 
 @pytest.mark.asyncio
@@ -194,9 +200,10 @@ async def test_get_server_not_found(
     """Test getting a server that doesn't exist."""
     service = ServerService(ironic_client=fake_ironic_client_empty)
 
-    # This should raise NotImplementedError since Ironic calls are not yet implemented
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(HTTPException) as exc_info:
         await service.get_server("nonexistent-server")
+
+    assert exc_info.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -206,9 +213,10 @@ async def test_get_server_by_uuid(
     """Test getting a server by UUID."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # This should raise NotImplementedError since Ironic calls are not yet implemented
-    with pytest.raises(NotImplementedError):
-        await service.get_server("node-1")
+    result = await service.get_server("node-1")
+
+    assert result.id == "node-1"
+    assert result.name == "server-1"
 
 
 @pytest.mark.asyncio
@@ -218,9 +226,10 @@ async def test_get_server_by_name(
     """Test getting a server by name."""
     service = ServerService(ironic_client=fake_ironic_client_with_servers)
 
-    # This should raise NotImplementedError since Ironic calls are not yet implemented
-    with pytest.raises(NotImplementedError):
-        await service.get_server("server-1")
+    result = await service.get_server("server-1")
+
+    assert result.id == "node-1"
+    assert result.name == "server-1"
 
 
 def test_is_available_available_state() -> None:
@@ -235,9 +244,8 @@ def test_is_available_available_state() -> None:
         maintenance=False
     )
 
-    # Note: _is_available not fully implemented yet, returns False as placeholder
     result = service._is_available(node)
-    assert isinstance(result, bool)
+    assert result is True
 
 
 def test_is_available_in_maintenance() -> None:
@@ -252,9 +260,8 @@ def test_is_available_in_maintenance() -> None:
         maintenance=True
     )
 
-    # Maintenance servers should not be available
     result = service._is_available(node)
-    assert isinstance(result, bool)
+    assert result is False
 
 
 def test_is_available_power_on() -> None:
@@ -269,9 +276,8 @@ def test_is_available_power_on() -> None:
         maintenance=False
     )
 
-    # Powered-on servers should not be available
     result = service._is_available(node)
-    assert isinstance(result, bool)
+    assert result is False
 
 
 def test_is_available_active_provision_state() -> None:
@@ -286,6 +292,5 @@ def test_is_available_active_provision_state() -> None:
         maintenance=False
     )
 
-    # Active servers should not be available
     result = service._is_available(node)
-    assert isinstance(result, bool)
+    assert result is False

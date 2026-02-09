@@ -1,15 +1,79 @@
 """Tests for the server router."""
 
+from datetime import datetime, timezone
+
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import app
+from dependencies import get_server_service
+from schemas.server import ServerListResponse, ServerSummary
+
+
+class FakeServerService:
+    """Test double for server service."""
+
+    def __init__(self) -> None:
+        now = datetime.now(timezone.utc)
+        self._servers = [
+            ServerSummary(
+                id="node-1",
+                name="server-1",
+                provision_state="available",
+                power_state="power off",
+                resource_class="baremetal",
+                is_available=True,
+                properties={},
+                created_at=now,
+                updated_at=now,
+            )
+        ]
+
+    async def list_servers(
+        self,
+        provision_state=None,
+        resource_class=None,
+        available_only=False,
+        page=1,
+        page_size=50,
+    ) -> ServerListResponse:
+        servers = self._servers
+        if provision_state:
+            servers = [server for server in servers if server.provision_state == provision_state]
+        if resource_class:
+            servers = [server for server in servers if server.resource_class == resource_class]
+        if available_only:
+            servers = [server for server in servers if server.is_available]
+        total = len(servers)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        return ServerListResponse(
+            servers=servers[start_idx:end_idx],
+            total=total,
+            page=page,
+            page_size=page_size,
+        )
+
+    async def get_server(self, server_id: str) -> ServerSummary:
+        for server in self._servers:
+            if server.id == server_id or server.name == server_id:
+                return server
+        raise HTTPException(status_code=404, detail="Server not found")
 
 
 @pytest.fixture()
 def client() -> TestClient:
-    """Create a FastAPI test client."""
-    return TestClient(app)
+    """Create a FastAPI test client with server service overrides."""
+    fake_service = FakeServerService()
+
+    def override_get_server_service():
+        return fake_service
+
+    app.dependency_overrides[get_server_service] = override_get_server_service
+    test_client = TestClient(app)
+    yield test_client
+    app.dependency_overrides.clear()
 
 
 class TestListServers:
@@ -100,23 +164,33 @@ class TestGetServer:
 
     def test_get_server_by_id(self, client: TestClient) -> None:
         """Test getting a server by UUID."""
-        # This will fail until Ironic client calls are implemented
-        # The service raises NotImplementedError which propagates
-        with pytest.raises(NotImplementedError):
-            client.get("/servers/node-uuid-12345")
+        response = client.get("/servers/node-1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "node-1"
+        assert data["name"] == "server-1"
 
     def test_get_server_by_name(self, client: TestClient) -> None:
         """Test getting a server by name."""
-        # This will fail until Ironic client calls are implemented
-        # The service raises NotImplementedError which propagates
-        with pytest.raises(NotImplementedError):
-            client.get("/servers/test-server")
+        response = client.get("/servers/server-1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == "node-1"
+        assert data["name"] == "server-1"
 
     def test_get_server_response_schema(self, client: TestClient) -> None:
-        """Test that server endpoint raises when not implemented."""
-        # Until Ironic API calls are implemented, expect NotImplementedError
-        with pytest.raises(NotImplementedError):
-            client.get("/servers/test-server")
+        """Test that server endpoint returns the response schema."""
+        response = client.get("/servers/server-1")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "id" in data
+        assert "name" in data
+        assert "provision_state" in data
+        assert "is_available" in data
+        assert "created_at" in data
 
 
 class TestServerEndpointOpenAPI:
