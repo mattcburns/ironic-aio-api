@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Enrollment Steps:
 # 1. Enroll the node with BMC credentials
 # 2. Add the node primary network port based on MAC address
-# 3. Configure network settings (IP, netmask, gateway) for cleaning and provisioning
+# 3. Set network data with IP configuration for cleaning and provisioning
 # 4. Mark the node as manageable
 # 5. Transition node to available state
 
@@ -68,11 +68,10 @@ class EnrollService:
         2. Build driver_info from BMC credentials
         3. Create node in Ironic
         4. Add network port with MAC address
-        5. Configure network settings (IP, netmask, gateway) for cleaning operations
+        5. Set network data with IP configuration
         6. Transition to manageable state (synchronous, blocks until completion)
-        7. Initiate transition to available state (asynchronous, doesn't block)
-        8. Optionally validate BMC connectivity
-        9. Return enrollment result with current state
+        7. Optionally validate BMC connectivity
+        8. Return enrollment result with current state
 
         Args:
             request: Enrollment request with server details
@@ -129,14 +128,32 @@ class EnrollService:
                 "netmask": request.network.netmask,
                 "gateway": request.network.gateway,
             }
-            await self.ironic.add_node_port(
+            port = await self.ironic.add_node_port(
                 node_id=server_id,
                 mac_address=request.network.mac_address,
                 extra=port_extra
             )
             logger.info(f"Network port added for: {request.name}")
 
-            # Step 5: Handle state transition to manageable
+            # Step 5: Set network data for the node
+            logger.info(f"Setting network data for node: {request.name}")
+            network_data = self._build_network_data(
+                port_id=port.id,
+                mac_address=request.network.mac_address,
+                ip_address=request.network.ip_address,
+                netmask=request.network.netmask,
+                gateway=request.network.gateway,
+            )
+            await self.ironic.set_node_network_data(server_id, network_data)
+            logger.info(f"Network data set for: {request.name}")
+
+            # Step 5.5: Set instance_info with ramdisk and kernel before validation
+            logger.info(f"Setting instance_info with ramdisk and kernel for: {request.name}")
+            instance_info = self._build_instance_info(kernel_url, ramdisk_url)
+            await self.ironic.set_node_instance_info(server_id, instance_info)
+            logger.info(f"Instance info set for: {request.name}")
+
+            # Step 6: Handle state transition to manageable
             # Manage transition is synchronous (required before available)
             logger.info(f"Transitioning node to manageable state for: {request.name}")
             try:
@@ -155,7 +172,7 @@ class EnrollService:
             provision_state = current_node.provision_state
 
 
-            # Step 6: Optionally validate BMC connectivity
+            # Step 7: Optionally validate BMC connectivity
             if request.validate_bmc:
                 logger.info(f"Validating BMC connectivity for: {request.name}")
                 bmc_valid = await self._validate_bmc_connectivity(server_id)
@@ -167,7 +184,7 @@ class EnrollService:
                     )
                 logger.info(f"BMC validation successful for: {request.name}")
 
-            # Step 7: Return enrollment result
+            # Step 8: Return enrollment result
             logger.info(f"Enrollment completed successfully for: {request.name}")
             return EnrollResponse(
                 server_id=server_id,
@@ -281,6 +298,79 @@ class EnrollService:
             driver_info["deploy_ramdisk"] = deploy_ramdisk_url
 
         return driver_info
+
+    def _build_network_data(
+        self,
+        port_id: str,
+        mac_address: str,
+        ip_address: str,
+        netmask: str,
+        gateway: str,
+    ) -> dict:
+        """Build network data configuration for Ironic node.
+
+        Args:
+            port_id: UUID of the created port
+            mac_address: MAC address of the network interface
+            ip_address: IP address for the interface
+            netmask: Network mask
+            gateway: Gateway IP address
+
+        Returns:
+            Network data dictionary in Ironic format
+        """
+        network_data = {
+            "links": [
+                {
+                    "id": f"port-{port_id}",
+                    "type": "phy",
+                    "ethernet_mac_address": mac_address,
+                }
+            ],
+            "networks": [
+                {
+                    "id": "network0",
+                    "type": "ipv4",
+                    "link": f"port-{port_id}",
+                    "ip_address": ip_address,
+                    "netmask": netmask,
+                    "network_id": "network0",
+                    "routes": [
+                        {
+                            "network": "0.0.0.0",
+                            "netmask": "0.0.0.0",
+                            "gateway": gateway,
+                        }
+                    ],
+                }
+            ],
+            "services": [],
+        }
+        return network_data
+
+    def _build_instance_info(
+        self,
+        kernel_url: str | None = None,
+        ramdisk_url: str | None = None,
+    ) -> dict:
+        """Build instance info with kernel and ramdisk URLs.
+
+        Args:
+            kernel_url: URL to the deploy kernel
+            ramdisk_url: URL to the deploy ramdisk
+
+        Returns:
+            Instance info dictionary
+        """
+        instance_info = {}
+
+        if kernel_url:
+            instance_info["kernel"] = kernel_url
+
+        if ramdisk_url:
+            instance_info["ramdisk"] = ramdisk_url
+
+        return instance_info
 
     async def _validate_bmc_connectivity(self, server_id: str) -> bool:
         """Validate BMC is reachable by attempting driver validation.

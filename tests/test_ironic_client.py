@@ -679,3 +679,72 @@ async def test_set_node_provision_state_error(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(IronicClientError, match="Failed to set provision state"):
         await client.set_node_provision_state("node-123", "manage")
+
+
+@pytest.mark.asyncio
+async def test_set_node_network_data_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_network_data successfully sets network data on node."""
+
+    class FakeNode:
+        id = "node-456"
+        network_data = {
+            "links": [{"id": "port-123", "type": "phy", "ethernet_mac_address": "aa:bb:cc:dd:ee:ff"}],
+            "networks": [{"id": "network0", "type": "ipv4", "ip_address": "10.0.0.10"}],
+            "services": []
+        }
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            """Mock patch_node to apply network_data patch."""
+            node = FakeNode()
+            # Apply the patch
+            for operation in patch:
+                if operation["op"] == "add" and operation["path"] == "/network_data":
+                    node.network_data = operation["value"]
+            return node
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    network_data = {
+        "links": [{"id": "port-123", "type": "phy", "ethernet_mac_address": "aa:bb:cc:dd:ee:ff"}],
+        "networks": [{"id": "network0", "type": "ipv4", "ip_address": "10.0.0.10"}],
+        "services": []
+    }
+    result = await client.set_node_network_data("node-456", network_data)
+
+    assert result.id == "node-456"
+    assert result.network_data is not None
+    assert result.network_data["links"][0]["ethernet_mac_address"] == "aa:bb:cc:dd:ee:ff"
+
+
+@pytest.mark.asyncio
+async def test_set_node_network_data_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_network_data raises IronicClientError on failure."""
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            raise RuntimeError("Network data patch failed")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    network_data = {"links": [], "networks": [], "services": []}
+    with pytest.raises(IronicClientError, match="Failed to set network data"):
+        await client.set_node_network_data("node-456", network_data)
+
+

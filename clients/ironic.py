@@ -234,6 +234,74 @@ class IronicClient:
             logger.exception(f"Failed to validate node {node_id}")
             raise IronicClientError(f"Failed to validate node {node_id}") from exc
 
+    async def set_node_network_data(
+        self,
+        node_id: str,
+        network_data: dict,
+    ) -> Node:
+        """Set network data for a node.
+
+        Uses the OpenStack SDK's patch_node method to apply a JSON-Patch
+        operation to set the network_data field on the node.
+
+        Args:
+            node_id: UUID of the node
+            network_data: Network configuration data (links, networks, services)
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If updating network data fails
+        """
+        try:
+            connection = await self.get_connection()
+            # Use patch_node with JSON-Patch format to set network_data
+            patch = [
+                {
+                    "op": "add",
+                    "path": "/network_data",
+                    "value": network_data
+                }
+            ]
+            node = connection.baremetal.patch_node(node_id, patch)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to set network data for node {node_id}")
+            raise IronicClientError(
+                f"Failed to set network data for node {node_id}"
+            ) from exc
+
+    async def set_node_instance_info(
+        self,
+        node_id: str,
+        instance_info: dict,
+    ) -> Node:
+        """Set instance info for a node (kernel, ramdisk, etc.).
+
+        Args:
+            node_id: UUID of the node
+            instance_info: Instance information dictionary
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If updating instance info fails
+        """
+        try:
+            connection = await self.get_connection()
+            node = connection.baremetal.update_node(
+                node_id,
+                instance_info=instance_info
+            )
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to set instance info for node {node_id}")
+            raise IronicClientError(
+                f"Failed to set instance info for node {node_id}"
+            ) from exc
+
     async def set_node_provision_state(
         self,
         node_id: str,

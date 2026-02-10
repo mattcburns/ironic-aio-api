@@ -12,6 +12,23 @@ from schemas.enroll import BMCCredentials, EnrollRequest, NetworkInterface
 from services.enroll import EnrollService
 
 
+class FakePort:
+    """Fake Ironic port for testing."""
+
+    def __init__(self, mac_address: str, node_id: str, extra: dict | None = None):
+        """Initialize fake port.
+
+        Args:
+            mac_address: MAC address of the port
+            node_id: UUID of the node this port belongs to
+            extra: Additional port configuration
+        """
+        self.id = str(uuid4())
+        self.address = mac_address
+        self.node_uuid = node_id
+        self.extra = extra or {}
+
+
 class FakeNode:
     """Fake Ironic node for testing."""
 
@@ -31,6 +48,8 @@ class FakeNode:
         self.properties = {}
         self.ports = []
         self.provision_state = provision_state
+        self.network_data = None
+        self.instance_info = None
 
 
 class FakeIronicClientForEnroll:
@@ -139,7 +158,7 @@ class FakeIronicClientForEnroll:
         node_id: str,
         mac_address: str,
         extra: dict | None = None,
-    ) -> object:
+    ) -> FakePort:
         """Add a network port to a node.
 
         Args:
@@ -148,18 +167,81 @@ class FakeIronicClientForEnroll:
             extra: Additional port configuration
 
         Returns:
-            Created port object (dict for testing)
+            Created FakePort object
         """
-        port = {
-            "mac_address": mac_address,
-            "extra": extra or {},
-        }
+        port = FakePort(mac_address, node_id, extra)
         # Store port in the node (for testing purposes)
         for node in self.created_nodes:
             if node.id == node_id:
                 node.ports.append(port)
                 break
         return port
+
+    async def set_node_network_data(
+        self,
+        node_id: str,
+        network_data: dict,
+    ) -> FakeNode:
+        """Set network data for a node.
+
+        Args:
+            node_id: UUID of the node
+            network_data: Network configuration data
+
+        Returns:
+            Updated FakeNode object
+        """
+        if self.simulate_error == "api_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError("Failed to set network data")
+
+        # Find and update the node
+        for node in self.created_nodes:
+            if node.id == node_id:
+                node.network_data = network_data
+                return node
+
+        # If not found in created nodes, check existing nodes
+        for node in self._nodes_by_name.values():
+            if node.id == node_id:
+                node.network_data = network_data
+                return node
+
+        from clients.ironic import IronicClientError
+        raise IronicClientError(f"Node {node_id} not found")
+
+    async def set_node_instance_info(
+        self,
+        node_id: str,
+        instance_info: dict,
+    ) -> FakeNode:
+        """Set instance info for a node.
+
+        Args:
+            node_id: UUID of the node
+            instance_info: Instance information dictionary
+
+        Returns:
+            Updated FakeNode object
+        """
+        if self.simulate_error == "api_error":
+            from clients.ironic import IronicClientError
+            raise IronicClientError("Failed to set instance info")
+
+        # Find and update the node
+        for node in self.created_nodes:
+            if node.id == node_id:
+                node.instance_info = instance_info
+                return node
+
+        # If not found in created nodes, check existing nodes
+        for node in self._nodes_by_name.values():
+            if node.id == node_id:
+                node.instance_info = instance_info
+                return node
+
+        from clients.ironic import IronicClientError
+        raise IronicClientError(f"Node {node_id} not found")
 
     async def validate_node(self, node_id: str) -> dict:
         """Validate node driver (test BMC connectivity).
@@ -281,6 +363,65 @@ async def test_enroll_server_success(
     assert "enrollment-status" in result.message  # Should mention status endpoint
     assert isinstance(result.created_at, datetime)
     assert result.created_at.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_sets_network_data(
+    fake_ironic_client_empty: FakeIronicClientForEnroll,
+) -> None:
+    """Test that enrollment sets network data correctly."""
+    service = EnrollService(ironic_client=fake_ironic_client_empty)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="aa:bb:cc:dd:ee:ff",
+            nic_name="eno1",
+            ip_address="10.20.30.40",
+            netmask="255.255.255.0",
+            gateway="10.20.30.1",
+        ),
+        validate_bmc=False,
+    )
+
+    result = await service.enroll_server(request)
+
+    # Get the created node to check network data
+    assert len(fake_ironic_client_empty.created_nodes) == 1
+    node = fake_ironic_client_empty.created_nodes[0]
+
+    # Verify network data was set
+    assert node.network_data is not None
+    assert "links" in node.network_data
+    assert "networks" in node.network_data
+    assert "services" in node.network_data
+
+    # Verify links configuration
+    assert len(node.network_data["links"]) == 1
+    link = node.network_data["links"][0]
+    assert link["type"] == "phy"
+    assert link["ethernet_mac_address"] == "aa:bb:cc:dd:ee:ff"
+    assert "port-" in link["id"]  # Should contain the port ID
+
+    # Verify networks configuration
+    assert len(node.network_data["networks"]) == 1
+    network = node.network_data["networks"][0]
+    assert network["type"] == "ipv4"
+    assert network["ip_address"] == "10.20.30.40"
+    assert network["netmask"] == "255.255.255.0"
+    assert network["network_id"] == "network0"
+
+    # Verify routes (gateway) configuration
+    assert len(network["routes"]) == 1
+    route = network["routes"][0]
+    assert route["gateway"] == "10.20.30.1"
+    assert route["network"] == "0.0.0.0"
+    assert route["netmask"] == "0.0.0.0"
 
 
 @pytest.mark.asyncio
