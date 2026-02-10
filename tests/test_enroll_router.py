@@ -101,6 +101,8 @@ async def test_enroll_server_endpoint_with_properties(client) -> None:
             "memory_mb": 65536,
             "local_gb": 1000,
         },
+        "kernel_url": "https://images.example.com/deploy.kernel",
+        "ramdisk_url": "https://images.example.com/deploy.ramdisk",
     }
 
     response = client.post("/servers", json=request_data)

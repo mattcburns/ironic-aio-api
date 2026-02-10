@@ -99,6 +99,8 @@ async def test_enroll_server_mcp_tool_with_resource_class() -> None:
         netmask="255.255.255.0",
         gateway="10.0.0.1",
         resource_class="compute",
+        kernel_url="https://images.example.com/deploy.kernel",
+        ramdisk_url="https://images.example.com/deploy.ramdisk",
     )
 
     assert result["server_name"] == "classified-server"

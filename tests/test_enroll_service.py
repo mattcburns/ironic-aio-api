@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
+from config import Settings
 from schemas.enroll import BMCCredentials, EnrollRequest, NetworkInterface
 from services.enroll import EnrollService
 
@@ -389,6 +390,27 @@ async def test_build_redfish_driver_info_with_custom_system_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_build_redfish_driver_info_with_deploy_urls() -> None:
+    """Test Redfish driver info includes deploy URLs when provided."""
+    service = EnrollService(ironic_client=FakeIronicClientForEnroll())
+
+    bmc = BMCCredentials(
+        address="192.168.1.100",
+        username="admin",
+        password="password",
+    )
+
+    driver_info = service._build_redfish_driver_info(
+        bmc,
+        deploy_kernel_url="https://images.example.com/deploy.kernel",
+        deploy_ramdisk_url="https://images.example.com/deploy.ramdisk",
+    )
+
+    assert driver_info["deploy_kernel"] == "https://images.example.com/deploy.kernel"
+    assert driver_info["deploy_ramdisk"] == "https://images.example.com/deploy.ramdisk"
+
+
+@pytest.mark.asyncio
 async def test_build_driver_info_with_supported_driver() -> None:
     """Test driver info building with supported driver."""
     service = EnrollService(ironic_client=FakeIronicClientForEnroll())
@@ -533,6 +555,41 @@ async def test_build_redfish_driver_info_with_bmc_port() -> None:
     assert driver_info["redfish_password"] == "password"
     assert "redfish_system_id" not in driver_info  # Not sent when not explicitly provided
     assert driver_info["redfish_verify_ca"] is False
+
+
+@pytest.mark.asyncio
+async def test_enroll_server_uses_config_deploy_urls() -> None:
+    """Test enrollment applies deploy URLs from settings when not provided."""
+    settings = Settings(
+        kernel_url="https://images.example.com/default.kernel",
+        ramdisk_url="https://images.example.com/default.ramdisk",
+    )
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client, settings=settings)
+
+    request = EnrollRequest(
+        name="test-server",
+        bmc=BMCCredentials(
+            address="192.168.1.100",
+            username="admin",
+            password="password",
+        ),
+        network=NetworkInterface(
+            mac_address="00:11:22:33:44:55",
+            nic_name="eth0",
+            ip_address="10.0.0.10",
+            netmask="255.255.255.0",
+            gateway="10.0.0.1",
+        ),
+        validate_bmc=False,
+    )
+
+    await service.enroll_server(request)
+
+    assert fake_client.created_nodes
+    driver_info = fake_client.created_nodes[0].driver_info
+    assert driver_info["deploy_kernel"] == settings.kernel_url
+    assert driver_info["deploy_ramdisk"] == settings.ramdisk_url
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     ironic_basic_auth_username: str | None = None
     ironic_basic_auth_password: str | None = None
     ironic_skip_ca_verification: bool = False
+    kernel_url: str | None = None
+    ramdisk_url: str | None = None
 
     model_config = SettingsConfigDict(
         env_prefix="IRONIC_AIO_",

@@ -29,6 +29,8 @@ Configuration is managed through environment variables with the `IRONIC_AIO_` pr
 - `IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME`: Optional Ironic basic auth username
 - `IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD`: Optional Ironic basic auth password
 - `IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION`: Set to `true` to skip TLS CA verification (default: `false`)
+- `IRONIC_AIO_KERNEL_URL`: Default deploy kernel URL for enrollment (optional)
+- `IRONIC_AIO_RAMDISK_URL`: Default deploy ramdisk URL for enrollment (optional)
 
 ### .env File Support
 
@@ -40,6 +42,8 @@ IRONIC_AIO_IRONIC_API_VERSION=1.82
 IRONIC_AIO_IRONIC_BASIC_AUTH_USERNAME=ironicuser
 IRONIC_AIO_IRONIC_BASIC_AUTH_PASSWORD=your_password
 IRONIC_AIO_IRONIC_SKIP_CA_VERIFICATION=true
+IRONIC_AIO_KERNEL_URL=https://images.example.com/ironic/deploy.kernel
+IRONIC_AIO_RAMDISK_URL=https://images.example.com/ironic/deploy.ramdisk
 ```
 
 The `.env` file is optional and ignored by Git. For production deployments, use proper environment variable management (e.g., Kubernetes secrets, systemd environment files).

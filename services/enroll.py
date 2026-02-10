@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from clients.ironic import IronicClient, IronicClientError
+from config import Settings, get_settings
 from schemas.enroll import BMCCredentials, EnrollRequest, EnrollResponse
 
 logger = logging.getLogger(__name__)
@@ -44,13 +45,15 @@ class EnrollmentError(HTTPException):
 class EnrollService:
     """Server enrollment business logic."""
 
-    def __init__(self, ironic_client: IronicClient):
+    def __init__(self, ironic_client: IronicClient, settings: Settings | None = None):
         """Initialize enrollment service.
 
         Args:
             ironic_client: Client for interacting with Ironic API
+            settings: Optional settings override
         """
         self.ironic = ironic_client
+        self.settings = settings or get_settings()
 
     async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
         """
@@ -89,10 +92,20 @@ class EnrollService:
             logger.info(f"Server name validation passed for: {request.name}")
 
             # Step 2: Build Redfish driver_info from BMC credentials
+            kernel_url = request.kernel_url
+            if kernel_url is None:
+                kernel_url = self.settings.kernel_url
+
+            ramdisk_url = request.ramdisk_url
+            if ramdisk_url is None:
+                ramdisk_url = self.settings.ramdisk_url
+
             driver_info = self._build_redfish_driver_info(
                 request.bmc,
                 request.redfish_system_id,
                 request.redfish_verify_ca,
+                kernel_url,
+                ramdisk_url,
             )
             logger.debug("Redfish driver_info built successfully")
 
@@ -230,6 +243,8 @@ class EnrollService:
         bmc: BMCCredentials,
         redfish_system_id: str | None = None,
         redfish_verify_ca: bool = False,
+        deploy_kernel_url: str | None = None,
+        deploy_ramdisk_url: str | None = None,
     ) -> dict:
         """Build Redfish driver info.
 
@@ -237,6 +252,8 @@ class EnrollService:
             bmc: BMC credentials
             redfish_system_id: Optional Redfish system ID (only included if provided)
             redfish_verify_ca: Whether to verify Redfish CA certificates
+            deploy_kernel_url: Optional deploy kernel URL for Ironic
+            deploy_ramdisk_url: Optional deploy ramdisk URL for Ironic
 
         Returns:
             Redfish-formatted driver_info dictionary
@@ -256,6 +273,12 @@ class EnrollService:
         if bmc.port:
             # Modify the address to include the port
             driver_info["redfish_address"] = f"https://{bmc.address}:{bmc.port}"
+
+        if deploy_kernel_url:
+            driver_info["deploy_kernel"] = deploy_kernel_url
+
+        if deploy_ramdisk_url:
+            driver_info["deploy_ramdisk"] = deploy_ramdisk_url
 
         return driver_info
 
