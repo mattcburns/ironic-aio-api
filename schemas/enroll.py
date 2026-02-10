@@ -46,7 +46,11 @@ class EnrollRequest(BaseModel):
     network: NetworkInterface = Field(description="Network interface configuration for cleaning and provisioning")
     resource_class: Optional[str] = Field(default=None, description="Resource classification (e.g., 'baremetal')")
     properties: Optional[dict] = Field(default=None, description="Server properties (CPU, memory, disk info)")
-    redfish_system_id: Optional[str] = Field(default="/redfish/v1/Systems/1", description="Redfish system ID for the BMC")
+    redfish_system_id: Optional[str] = Field(default=None, description="Redfish system ID for the BMC (only sent if specified)")
+    redfish_verify_ca: bool = Field(
+        default=False,
+        description="Verify Redfish CA certificate during enrollment",
+    )
     validate_bmc: bool = Field(default=True, description="Test BMC connectivity during enrollment")
 
 

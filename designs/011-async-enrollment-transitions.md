@@ -6,13 +6,14 @@
 
 ## Overview
 
-This design refactors the server enrollment workflow to use non-blocking state transitions. Node state transitions in Ironic (particularly the transition to "available" which performs hardware cleaning) can take several minutes to complete. The current enrollment implementation blocks waiting for these transitions, which is inefficient and can cause API timeouts.
+This design implements an async-friendly enrollment pattern where enrollment is fast and non-blocking. Instead of waiting for long-running state transitions, enrollment completes when the node reaches "manageable" state. Providing (transitioning to "available") is a separate, user-initiated operation (see Design 015).
 
 This design implements an async-friendly pattern where:
-1. Enrollment transitions the node to "manage" state (synchronously - required before available)
-2. Enrollment initiates transition to "available" but returns immediately (asynchronously)
-3. A separate status endpoint allows clients to poll for transition completion
-4. Users get immediate feedback on enrollment success with clear messaging about ongoing operations
+1. Enrollment transitions the node to "manage" state (synchronously - fast and required)
+2. Enrollment returns immediately with the node in "manageable" state
+3. Users then call a separate provide endpoint (Design 015) to make the node available for provisioning
+4. A status endpoint allows clients to poll for transition completion
+5. Users get immediate feedback on enrollment success with clear messaging about next steps
 
 ## Business Requirements
 
@@ -67,22 +68,20 @@ Clients check enrollment status by polling a dedicated endpoint that queries Iro
 
 ### 1. Update EnrollService Methods
 
-#### `enroll_server()` - Mixed blocking/non-blocking transitions
+#### `enroll_server()` - Synchronous manage transition only
 
 Changes:
 - Manage transition: Wait for completion (synchronous, returns immediately as it's quick)
-- Provide transition: Initiate but don't wait (asynchronous, initiated in background)
-- Provide transition failures are logged but don't fail enrollment
-- Get current node state after initiating transitions
-- Return immediately with current provision_state
+- Return immediately with current provision_state in manageable
+- Provide transition is now a separate operation (see Design 015)
 
 ```python
 async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
     """
     Enroll a new server into Ironic.
 
-    Manage transition is synchronous (fast, required), provide transition is asynchronous.
-    Returns immediately with the current state. Use get_enrollment_status() to poll for completion.
+    Manages the node and returns immediately. To make the node available for
+    provisioning, call provide_server() afterward (see Design 015).
     """
     # ... node creation and port setup ...
 
@@ -99,15 +98,6 @@ async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
             detail=f"Failed to transition node to manage state: {str(e)}"
         )
 
-    # Provide transition is asynchronous (initiated but not awaited)
-    logger.info(f"Initiating state transition to provide for: {request.name}")
-    try:
-        await self.ironic.set_node_provision_state(server_id, "provide")
-        logger.info(f"State transition to provide initiated")
-    except IronicClientError as e:
-        logger.warning(f"Failed to initiate provide transition: {str(e)}")
-        # Non-critical error - node is already in manageable state
-
     # Get current state from Ironic and return immediately
     current_node = await self.ironic.get_node(server_id)
     provision_state = current_node.provision_state
@@ -117,10 +107,9 @@ async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
         server_name=request.name,
         status="enrolled",
         provision_state=provision_state,
-        message=f"Server '{request.name}' successfully enrolled. "
+        message=f"Server '{request.name}' successfully enrolled and ready for management. "
                 f"Current state: {provision_state}. "
-                f"Transition to available may take several minutes. "
-                f"Use GET /servers/{server_id}/enrollment-status to check progress.",
+                f"Call POST /servers/{server_id}/provide when ready to make available for provisioning.",
         created_at=datetime.now(timezone.utc)
     )
 ```

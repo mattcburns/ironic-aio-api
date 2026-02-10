@@ -59,17 +59,18 @@ class FakeIronicClientForEnroll:
         """
         return self._nodes_by_name.get(name)
 
-    async def get_node(self, node_id: str) -> FakeNode:
+    async def get_node(self, node_id: str, ignore_missing: bool = False) -> FakeNode | None:
         """Get a node by ID.
 
         Args:
             node_id: UUID of the node to retrieve
+            ignore_missing: If True, return None instead of raising on not found
 
         Returns:
-            Node if found
+            Node if found, None if ignore_missing=True and not found
 
         Raises:
-            IronicClientError: If node not found
+            IronicClientError: If node not found and ignore_missing=False
         """
         if self.simulate_error == "api_error":
             from clients.ironic import IronicClientError
@@ -88,6 +89,9 @@ class FakeIronicClientForEnroll:
         for node in self._nodes_by_name.values():
             if node.id == node_id:
                 return node
+
+        if ignore_missing:
+            return None
 
         from clients.ironic import IronicClientError
         raise IronicClientError(f"Node {node_id} not found")
@@ -180,7 +184,7 @@ class FakeIronicClientForEnroll:
 
         Args:
             node_id: UUID of the node
-            target_state: Target provision state
+            target_state: Target provision state (action: manage, provide, etc.)
 
         Returns:
             Updated FakeNode object
@@ -198,16 +202,30 @@ class FakeIronicClientForEnroll:
             from clients.ironic import IronicClientError
             raise IronicClientError(f"Failed to transition node to provide")
 
+        # Map synchronous actions to actual provision states
+        # manage action -> manageable state (synchronous during enrollment)
+        # provide action -> do not change state immediately (async cleaning)
+        # unmanage action -> enroll state
+        state_mapping = {
+            "manage": "manageable",
+            "unmanage": "enroll",
+        }
+        actual_state = state_mapping.get(target_state)
+
         # Find and update the node
         for node in self.created_nodes:
             if node.id == node_id:
-                # Don't actually change state immediately - simulate async behavior
-                # State will be updated when get_node is called
+                # Only update state for synchronous transitions
+                if actual_state is not None:
+                    node.provision_state = actual_state
+                # For async transitions like "provide", don't update state
                 return node
 
         # If not found in created nodes, check existing nodes
         for node in self._nodes_by_name.values():
             if node.id == node_id:
+                if actual_state is not None:
+                    node.provision_state = actual_state
                 return node
 
         from clients.ironic import IronicClientError
@@ -255,10 +273,11 @@ async def test_enroll_server_success(
 
     assert result.server_name == "test-server"
     assert result.status == "enrolled"
-    # Accept any valid provision state - transitions are async
-    assert result.provision_state in ["enroll", "manageable", "manage", "available", "cleaning"]
-    assert "successfully enrolled" in result.message
-    assert "enrollment-status" in result.message  # Should include status endpoint URL
+    # Accept any valid provision state - should be manageable after enrollment
+    assert result.provision_state in ["enroll", "manageable", "manage"]
+    assert "enrollment initiated" in result.message
+    assert "provide" in result.message  # Should mention the provide endpoint
+    assert "enrollment-status" in result.message  # Should mention status endpoint
     assert isinstance(result.created_at, datetime)
     assert result.created_at.tzinfo is not None
 
@@ -340,7 +359,8 @@ async def test_build_redfish_driver_info() -> None:
     assert driver_info["redfish_address"] == "https://192.168.1.100"
     assert driver_info["redfish_username"] == "admin"
     assert driver_info["redfish_password"] == "password"
-    assert driver_info["redfish_system_id"] == "/redfish/v1/Systems/1"
+    assert "redfish_system_id" not in driver_info  # Not sent when not explicitly provided
+    assert driver_info["redfish_verify_ca"] is False
 
 
 @pytest.mark.asyncio
@@ -355,12 +375,17 @@ async def test_build_redfish_driver_info_with_custom_system_id() -> None:
     )
 
     custom_system_id = "/redfish/v1/Systems/custom-id"
-    driver_info = service._build_redfish_driver_info(bmc, custom_system_id)
+    driver_info = service._build_redfish_driver_info(
+        bmc,
+        custom_system_id,
+        redfish_verify_ca=True,
+    )
 
     assert driver_info["redfish_address"] == "https://192.168.1.100"
     assert driver_info["redfish_username"] == "admin"
     assert driver_info["redfish_password"] == "password"
     assert driver_info["redfish_system_id"] == custom_system_id
+    assert driver_info["redfish_verify_ca"] is True
 
 
 @pytest.mark.asyncio
@@ -506,7 +531,8 @@ async def test_build_redfish_driver_info_with_bmc_port() -> None:
     assert driver_info["redfish_address"] == "https://192.168.1.100:8443"
     assert driver_info["redfish_username"] == "admin"
     assert driver_info["redfish_password"] == "password"
-    assert driver_info["redfish_system_id"] == "/redfish/v1/Systems/1"
+    assert "redfish_system_id" not in driver_info  # Not sent when not explicitly provided
+    assert driver_info["redfish_verify_ca"] is False
 
 
 @pytest.mark.asyncio
@@ -620,3 +646,72 @@ async def test_map_provision_state_to_message() -> None:
 
     # Test unknown state
     assert "unknown-state" in service._map_provision_state_to_message("unknown-state")
+
+
+@pytest.mark.asyncio
+async def test_provide_server_success() -> None:
+    """Test successful provide transition."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    # Create a node in manageable state
+    node = FakeNode("test-server", provision_state="manageable")
+    fake_client._nodes_by_id[node.id] = node
+    fake_client.created_nodes.append(node)
+
+    result = await service.provide_server(node.id)
+
+    assert result.server_id == node.id
+    assert result.status == "enrolled"
+    assert result.provision_state == "manageable"  # Stays manageable after initiation
+    assert "transition to available initiated" in result.message
+
+
+@pytest.mark.asyncio
+async def test_provide_server_not_found() -> None:
+    """Test provide fails when server not found."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.provide_server("nonexistent-server")
+
+    assert exc_info.value.status_code == 404
+    assert "not found" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_provide_server_not_manageable() -> None:
+    """Test provide fails when server is not in manageable state."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    # Create a node in available state
+    node = FakeNode("test-server", provision_state="available")
+    fake_client._nodes_by_id[node.id] = node
+    fake_client.created_nodes.append(node)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.provide_server(node.id)
+
+    assert exc_info.value.status_code == 400
+    assert "manageable" in exc_info.value.detail
+    assert "available" in exc_info.value.detail
+
+
+@pytest.mark.asyncio
+async def test_provide_server_enroll_state() -> None:
+    """Test provide fails when server is in enroll state."""
+    fake_client = FakeIronicClientForEnroll()
+    service = EnrollService(ironic_client=fake_client)
+
+    # Create a node in enroll state
+    node = FakeNode("test-server", provision_state="enroll")
+    fake_client._nodes_by_id[node.id] = node
+    fake_client.created_nodes.append(node)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await service.provide_server(node.id)
+
+    assert exc_info.value.status_code == 400
+    assert "manageable" in exc_info.value.detail

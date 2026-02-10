@@ -17,6 +17,7 @@ See README.md for development setup and testing commands.
 - Every core library used MUST have a justification documented in `README.md`
 - Carefully evaluate the trade-offs before introducing new dependencies
 - Keep `requirements.txt` lean and well-documented
+- A common implementation for both the MCP and REST APIs - all features must be available in both.
 
 ### API Design
 - **OpenAPI Specification**: All API endpoints MUST be defined using OpenAPI (Swagger) specifications

@@ -22,7 +22,7 @@ from services.enroll import EnrollService
 router = APIRouter(prefix="/servers", tags=["servers"])
 
 
-@router.post("", response_model=EnrollResponse, status_code=201)
+@router.post("", response_model=EnrollResponse, status_code=202)
 async def enroll_server(
     request: EnrollRequest,
     service: EnrollService = Depends(get_enroll_service)
@@ -31,7 +31,7 @@ async def enroll_server(
     Enroll a new physical server into management.
 
     Registers the server's BMC credentials and creates an Ironic node.
-    Returns 201 Created with the new server details.
+    Management state transition is asynchronous. Returns 202 Accepted.
 
     Args:
         request: Enrollment request containing server details
@@ -74,3 +74,30 @@ async def get_enrollment_status(
         HTTPException: 502 if Ironic API communication fails
     """
     return await service.get_enrollment_status(server_id)
+
+
+@router.post("/{server_id}/provide", response_model=EnrollResponse, status_code=202)
+async def provide_server(
+    server_id: str,
+    service: EnrollService = Depends(get_enroll_service)
+) -> EnrollResponse:
+    """
+    Transition a managed server to available state for provisioning.
+
+    The server must be in 'manageable' state. Hardware cleaning is performed
+    asynchronously and may take several minutes. Use the enrollment status
+    endpoint to check progress.
+
+    Args:
+        server_id: UUID or name of the server
+        service: Enrollment service dependency
+
+    Returns:
+        EnrollResponse with updated status
+
+    Raises:
+        HTTPException: 404 if server not found
+        HTTPException: 400 if server is not in manageable state
+        HTTPException: 502 if Ironic API communication fails
+    """
+    return await service.provide_server(server_id)

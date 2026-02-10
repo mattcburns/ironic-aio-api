@@ -91,7 +91,8 @@ class EnrollService:
             # Step 2: Build Redfish driver_info from BMC credentials
             driver_info = self._build_redfish_driver_info(
                 request.bmc,
-                request.redfish_system_id
+                request.redfish_system_id,
+                request.redfish_verify_ca,
             )
             logger.debug("Redfish driver_info built successfully")
 
@@ -122,7 +123,7 @@ class EnrollService:
             )
             logger.info(f"Network port added for: {request.name}")
 
-            # Step 5-7: Handle state transitions
+            # Step 5: Handle state transition to manageable
             # Manage transition is synchronous (required before available)
             logger.info(f"Transitioning node to manageable state for: {request.name}")
             try:
@@ -136,21 +137,12 @@ class EnrollService:
                     detail=f"Failed to transition node to manage state: {str(e)}"
                 )
 
-            # Provide transition is asynchronous (initiated but not awaited)
-            logger.info(f"Initiating state transition to provide for: {request.name}")
-            try:
-                await self.ironic.set_node_provision_state(server_id, "provide")
-                logger.info(f"State transition to provide initiated")
-            except IronicClientError as e:
-                logger.warning(f"Failed to initiate provide transition: {str(e)}")
-                # Non-critical error - node is already in manageable state
-
             # Get current state from Ironic and return immediately
             current_node = await self.ironic.get_node(server_id)
             provision_state = current_node.provision_state
 
 
-            # Step 8: Optionally validate BMC connectivity
+            # Step 6: Optionally validate BMC connectivity
             if request.validate_bmc:
                 logger.info(f"Validating BMC connectivity for: {request.name}")
                 bmc_valid = await self._validate_bmc_connectivity(server_id)
@@ -162,17 +154,18 @@ class EnrollService:
                     )
                 logger.info(f"BMC validation successful for: {request.name}")
 
-            # Step 9: Return enrollment result
+            # Step 7: Return enrollment result
             logger.info(f"Enrollment completed successfully for: {request.name}")
             return EnrollResponse(
                 server_id=server_id,
                 server_name=request.name,
                 status="enrolled",
                 provision_state=provision_state,
-                message=f"Server '{request.name}' successfully enrolled. "
+                message=f"Server '{request.name}' enrollment initiated. "
                         f"Current state: {provision_state}. "
-                        f"State transitions may take several minutes. "
-                        f"Use GET /servers/{server_id}/enrollment-status to check progress.",
+                        f"Management state transition is in progress. "
+                        f"Use GET /servers/{server_id}/enrollment-status to check progress. "
+                        f"Call POST /servers/{server_id}/provide when ready to make available for provisioning.",
                 created_at=datetime.now(timezone.utc)
             )
 
@@ -235,24 +228,29 @@ class EnrollService:
     def _build_redfish_driver_info(
         self,
         bmc: BMCCredentials,
-        redfish_system_id: str | None = None
+        redfish_system_id: str | None = None,
+        redfish_verify_ca: bool = False,
     ) -> dict:
         """Build Redfish driver info.
 
         Args:
             bmc: BMC credentials
-            redfish_system_id: Redfish system ID (defaults to /redfish/v1/Systems/1)
+            redfish_system_id: Optional Redfish system ID (only included if provided)
+            redfish_verify_ca: Whether to verify Redfish CA certificates
 
         Returns:
             Redfish-formatted driver_info dictionary
         """
-        system_id = redfish_system_id or "/redfish/v1/Systems/1"
         driver_info = {
             "redfish_address": f"https://{bmc.address}",
             "redfish_username": bmc.username,
             "redfish_password": bmc.password,
-            "redfish_system_id": system_id,
+            "redfish_verify_ca": redfish_verify_ca,
         }
+
+        # Only include redfish_system_id if explicitly provided
+        if redfish_system_id is not None:
+            driver_info["redfish_system_id"] = redfish_system_id
 
         # Add optional BMC port if specified
         if bmc.port:
@@ -344,3 +342,77 @@ class EnrollService:
             "clean wait": "Server is waiting for cleaning to complete",
         }
         return state_messages.get(provision_state, f"Server status: {provision_state}")
+
+    async def provide_server(self, server_id: str) -> EnrollResponse:
+        """
+        Transition a managed server to available state for provisioning.
+
+        Call this after enrollment when the server is ready to join the available pool.
+        The node must be in 'manageable' state to proceed.
+
+        Args:
+            server_id: UUID or name of the server
+
+        Returns:
+            EnrollResponse with updated status
+
+        Raises:
+            HTTPException: 404 if server not found
+            HTTPException: 400 if server is not in manageable state
+            HTTPException: 502 if Ironic API communication fails
+        """
+        try:
+            # Fetch current node to check state
+            node = await self.ironic.get_node(server_id, ignore_missing=True)
+
+            if node is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Server '{server_id}' not found"
+                )
+
+            current_state = node.provision_state
+            if current_state != "manageable":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Server must be in 'manageable' state to provide. "
+                           f"Current state: {current_state}"
+                )
+
+            logger.info(f"Initiating provide transition for server: {server_id}")
+
+            # Initiate transition to provide (asynchronous)
+            await self.ironic.set_node_provision_state(server_id, "provide")
+
+            logger.info(f"Provide transition initiated for server: {server_id}")
+
+            # Get current state and return
+            current_node = await self.ironic.get_node(server_id)
+            provision_state = current_node.provision_state
+
+            return EnrollResponse(
+                server_id=server_id,
+                server_name=getattr(current_node, "name", "unknown"),
+                status="enrolled",
+                provision_state=provision_state,
+                message=f"Server transition to available initiated. "
+                        f"Current state: {provision_state}. "
+                        f"Hardware cleaning may take several minutes. "
+                        f"Use GET /servers/{server_id}/enrollment-status to check progress.",
+                created_at=datetime.now(timezone.utc)
+            )
+
+        except HTTPException:
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error during provide for {server_id}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ironic API error: {str(e)}"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error during provide for {server_id}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error during provide: {str(e)}"
+            )

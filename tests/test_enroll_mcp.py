@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from mcp_tools.enroll import enroll_server, get_enrollment_status
+from mcp_tools.enroll import enroll_server, get_enrollment_status, provide_server
 from services.enroll import EnrollService
 from tests.test_enroll_service import FakeIronicClientForEnroll
 
@@ -78,6 +78,7 @@ async def test_enroll_server_mcp_tool_redfish_driver() -> None:
         ip_address="10.0.0.12",
         netmask="255.255.255.0",
         gateway="10.0.0.1",
+        redfish_verify_ca=True,
     )
 
     assert result["server_name"] == "redfish-server"
@@ -128,6 +129,31 @@ async def test_get_enrollment_status_mcp_tool() -> None:
     assert status_result["server_name"] == "status-test-server"
     assert "provision_state" in status_result
     assert "message" in status_result
+
+
+@pytest.mark.asyncio
+async def test_provide_server_mcp_tool() -> None:
+    """Test providing a server via MCP tool."""
+    # First enroll a server
+    enroll_result = await enroll_server(
+        name="provide-test-server",
+        bmc_address="192.168.1.105",
+        bmc_username="admin",
+        bmc_password="password",
+        mac_address="00:11:22:33:44:aa",
+        nic_name="eth0",
+        ip_address="10.0.0.15",
+        netmask="255.255.255.0",
+        gateway="10.0.0.1",
+    )
+    server_id = enroll_result["server_id"]
+
+    # Provide the server
+    provide_result = await provide_server(server_id)
+
+    assert provide_result["server_id"] == server_id
+    assert provide_result["status"] == "enrolled"
+    assert "transition to available initiated" in provide_result["message"]
 
 
 
