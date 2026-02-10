@@ -3,6 +3,7 @@
 import pytest
 
 import httpx
+from openstack import exceptions as os_exceptions
 
 from clients.ironic import IronicClient, IronicClientError
 from config import Settings
@@ -241,6 +242,57 @@ async def test_get_node_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert node.id == "node-123"
     assert node.name == "test-node"
+
+
+@pytest.mark.asyncio
+async def test_get_node_ignore_missing_with_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ignore_missing works when SDK does not accept the parameter."""
+
+    class MockNode:
+        id = "node-123"
+        name = "test-node"
+
+    class MockBaremetal:
+        def get_node(self, node_id):
+            return MockNode()
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    node = await client.get_node("node-123", ignore_missing=True)
+
+    assert node is not None
+    assert node.id == "node-123"
+
+
+@pytest.mark.asyncio
+async def test_get_node_ignore_missing_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test ignore_missing returns None when node is missing."""
+
+    class MockBaremetal:
+        def get_node(self, node_id):
+            raise os_exceptions.ResourceNotFound("not found")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    node = await client.get_node("node-123", ignore_missing=True)
+
+    assert node is None
 
 
 @pytest.mark.asyncio
@@ -627,3 +679,72 @@ async def test_set_node_provision_state_error(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(IronicClientError, match="Failed to set provision state"):
         await client.set_node_provision_state("node-123", "manage")
+
+
+@pytest.mark.asyncio
+async def test_set_node_network_data_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_network_data successfully sets network data on node."""
+
+    class FakeNode:
+        id = "node-456"
+        network_data = {
+            "links": [{"id": "port-123", "type": "phy", "ethernet_mac_address": "aa:bb:cc:dd:ee:ff"}],
+            "networks": [{"id": "network0", "type": "ipv4", "ip_address": "10.0.0.10"}],
+            "services": []
+        }
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            """Mock patch_node to apply network_data patch."""
+            node = FakeNode()
+            # Apply the patch
+            for operation in patch:
+                if operation["op"] == "add" and operation["path"] == "/network_data":
+                    node.network_data = operation["value"]
+            return node
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    network_data = {
+        "links": [{"id": "port-123", "type": "phy", "ethernet_mac_address": "aa:bb:cc:dd:ee:ff"}],
+        "networks": [{"id": "network0", "type": "ipv4", "ip_address": "10.0.0.10"}],
+        "services": []
+    }
+    result = await client.set_node_network_data("node-456", network_data)
+
+    assert result.id == "node-456"
+    assert result.network_data is not None
+    assert result.network_data["links"][0]["ethernet_mac_address"] == "aa:bb:cc:dd:ee:ff"
+
+
+@pytest.mark.asyncio
+async def test_set_node_network_data_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test set_node_network_data raises IronicClientError on failure."""
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            raise RuntimeError("Network data patch failed")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    network_data = {"links": [], "networks": [], "services": []}
+    with pytest.raises(IronicClientError, match="Failed to set network data"):
+        await client.set_node_network_data("node-456", network_data)
+
+

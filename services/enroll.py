@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from clients.ironic import IronicClient, IronicClientError
+from config import Settings, get_settings
 from schemas.enroll import BMCCredentials, EnrollRequest, EnrollResponse
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 # Enrollment Steps:
 # 1. Enroll the node with BMC credentials
 # 2. Add the node primary network port based on MAC address
-# 3. Configure network settings (IP, netmask, gateway) for cleaning and provisioning
+# 3. Set network data with IP configuration for cleaning and provisioning
 # 4. Mark the node as manageable
 # 5. Transition node to available state
 
@@ -44,13 +45,15 @@ class EnrollmentError(HTTPException):
 class EnrollService:
     """Server enrollment business logic."""
 
-    def __init__(self, ironic_client: IronicClient):
+    def __init__(self, ironic_client: IronicClient, settings: Settings | None = None):
         """Initialize enrollment service.
 
         Args:
             ironic_client: Client for interacting with Ironic API
+            settings: Optional settings override
         """
         self.ironic = ironic_client
+        self.settings = settings or get_settings()
 
     async def enroll_server(self, request: EnrollRequest) -> EnrollResponse:
         """
@@ -65,11 +68,10 @@ class EnrollService:
         2. Build driver_info from BMC credentials
         3. Create node in Ironic
         4. Add network port with MAC address
-        5. Configure network settings (IP, netmask, gateway) for cleaning operations
+        5. Set network data with IP configuration
         6. Transition to manageable state (synchronous, blocks until completion)
-        7. Initiate transition to available state (asynchronous, doesn't block)
-        8. Optionally validate BMC connectivity
-        9. Return enrollment result with current state
+        7. Optionally validate BMC connectivity
+        8. Return enrollment result with current state
 
         Args:
             request: Enrollment request with server details
@@ -89,9 +91,20 @@ class EnrollService:
             logger.info(f"Server name validation passed for: {request.name}")
 
             # Step 2: Build Redfish driver_info from BMC credentials
+            kernel_url = request.kernel_url
+            if kernel_url is None:
+                kernel_url = self.settings.kernel_url
+
+            ramdisk_url = request.ramdisk_url
+            if ramdisk_url is None:
+                ramdisk_url = self.settings.ramdisk_url
+
             driver_info = self._build_redfish_driver_info(
                 request.bmc,
-                request.redfish_system_id
+                request.redfish_system_id,
+                request.redfish_verify_ca,
+                kernel_url,
+                ramdisk_url,
             )
             logger.debug("Redfish driver_info built successfully")
 
@@ -115,14 +128,32 @@ class EnrollService:
                 "netmask": request.network.netmask,
                 "gateway": request.network.gateway,
             }
-            await self.ironic.add_node_port(
+            port = await self.ironic.add_node_port(
                 node_id=server_id,
                 mac_address=request.network.mac_address,
                 extra=port_extra
             )
             logger.info(f"Network port added for: {request.name}")
 
-            # Step 5-7: Handle state transitions
+            # Step 5: Set network data for the node
+            logger.info(f"Setting network data for node: {request.name}")
+            network_data = self._build_network_data(
+                port_id=port.id,
+                mac_address=request.network.mac_address,
+                ip_address=request.network.ip_address,
+                netmask=request.network.netmask,
+                gateway=request.network.gateway,
+            )
+            await self.ironic.set_node_network_data(server_id, network_data)
+            logger.info(f"Network data set for: {request.name}")
+
+            # Step 5.5: Set instance_info with ramdisk and kernel before validation
+            logger.info(f"Setting instance_info with ramdisk and kernel for: {request.name}")
+            instance_info = self._build_instance_info(kernel_url, ramdisk_url)
+            await self.ironic.set_node_instance_info(server_id, instance_info)
+            logger.info(f"Instance info set for: {request.name}")
+
+            # Step 6: Handle state transition to manageable
             # Manage transition is synchronous (required before available)
             logger.info(f"Transitioning node to manageable state for: {request.name}")
             try:
@@ -136,21 +167,12 @@ class EnrollService:
                     detail=f"Failed to transition node to manage state: {str(e)}"
                 )
 
-            # Provide transition is asynchronous (initiated but not awaited)
-            logger.info(f"Initiating state transition to provide for: {request.name}")
-            try:
-                await self.ironic.set_node_provision_state(server_id, "provide")
-                logger.info(f"State transition to provide initiated")
-            except IronicClientError as e:
-                logger.warning(f"Failed to initiate provide transition: {str(e)}")
-                # Non-critical error - node is already in manageable state
-
             # Get current state from Ironic and return immediately
             current_node = await self.ironic.get_node(server_id)
             provision_state = current_node.provision_state
 
 
-            # Step 8: Optionally validate BMC connectivity
+            # Step 7: Optionally validate BMC connectivity
             if request.validate_bmc:
                 logger.info(f"Validating BMC connectivity for: {request.name}")
                 bmc_valid = await self._validate_bmc_connectivity(server_id)
@@ -162,17 +184,18 @@ class EnrollService:
                     )
                 logger.info(f"BMC validation successful for: {request.name}")
 
-            # Step 9: Return enrollment result
+            # Step 8: Return enrollment result
             logger.info(f"Enrollment completed successfully for: {request.name}")
             return EnrollResponse(
                 server_id=server_id,
                 server_name=request.name,
                 status="enrolled",
                 provision_state=provision_state,
-                message=f"Server '{request.name}' successfully enrolled. "
+                message=f"Server '{request.name}' enrollment initiated. "
                         f"Current state: {provision_state}. "
-                        f"State transitions may take several minutes. "
-                        f"Use GET /servers/{server_id}/enrollment-status to check progress.",
+                        f"Management state transition is in progress. "
+                        f"Use GET /servers/{server_id}/enrollment-status to check progress. "
+                        f"Call POST /servers/{server_id}/provide when ready to make available for provisioning.",
                 created_at=datetime.now(timezone.utc)
             )
 
@@ -235,31 +258,119 @@ class EnrollService:
     def _build_redfish_driver_info(
         self,
         bmc: BMCCredentials,
-        redfish_system_id: str | None = None
+        redfish_system_id: str | None = None,
+        redfish_verify_ca: bool = False,
+        deploy_kernel_url: str | None = None,
+        deploy_ramdisk_url: str | None = None,
     ) -> dict:
         """Build Redfish driver info.
 
         Args:
             bmc: BMC credentials
-            redfish_system_id: Redfish system ID (defaults to /redfish/v1/Systems/1)
+            redfish_system_id: Optional Redfish system ID (only included if provided)
+            redfish_verify_ca: Whether to verify Redfish CA certificates
+            deploy_kernel_url: Optional deploy kernel URL for Ironic
+            deploy_ramdisk_url: Optional deploy ramdisk URL for Ironic
 
         Returns:
             Redfish-formatted driver_info dictionary
         """
-        system_id = redfish_system_id or "/redfish/v1/Systems/1"
         driver_info = {
             "redfish_address": f"https://{bmc.address}",
             "redfish_username": bmc.username,
             "redfish_password": bmc.password,
-            "redfish_system_id": system_id,
+            "redfish_verify_ca": redfish_verify_ca,
         }
+
+        # Only include redfish_system_id if explicitly provided
+        if redfish_system_id is not None:
+            driver_info["redfish_system_id"] = redfish_system_id
 
         # Add optional BMC port if specified
         if bmc.port:
             # Modify the address to include the port
             driver_info["redfish_address"] = f"https://{bmc.address}:{bmc.port}"
 
+        if deploy_kernel_url:
+            driver_info["deploy_kernel"] = deploy_kernel_url
+
+        if deploy_ramdisk_url:
+            driver_info["deploy_ramdisk"] = deploy_ramdisk_url
+
         return driver_info
+
+    def _build_network_data(
+        self,
+        port_id: str,
+        mac_address: str,
+        ip_address: str,
+        netmask: str,
+        gateway: str,
+    ) -> dict:
+        """Build network data configuration for Ironic node.
+
+        Args:
+            port_id: UUID of the created port
+            mac_address: MAC address of the network interface
+            ip_address: IP address for the interface
+            netmask: Network mask
+            gateway: Gateway IP address
+
+        Returns:
+            Network data dictionary in Ironic format
+        """
+        network_data = {
+            "links": [
+                {
+                    "id": f"port-{port_id}",
+                    "type": "phy",
+                    "ethernet_mac_address": mac_address,
+                }
+            ],
+            "networks": [
+                {
+                    "id": "network0",
+                    "type": "ipv4",
+                    "link": f"port-{port_id}",
+                    "ip_address": ip_address,
+                    "netmask": netmask,
+                    "network_id": "network0",
+                    "routes": [
+                        {
+                            "network": "0.0.0.0",
+                            "netmask": "0.0.0.0",
+                            "gateway": gateway,
+                        }
+                    ],
+                }
+            ],
+            "services": [],
+        }
+        return network_data
+
+    def _build_instance_info(
+        self,
+        kernel_url: str | None = None,
+        ramdisk_url: str | None = None,
+    ) -> dict:
+        """Build instance info with kernel and ramdisk URLs.
+
+        Args:
+            kernel_url: URL to the deploy kernel
+            ramdisk_url: URL to the deploy ramdisk
+
+        Returns:
+            Instance info dictionary
+        """
+        instance_info = {}
+
+        if kernel_url:
+            instance_info["kernel"] = kernel_url
+
+        if ramdisk_url:
+            instance_info["ramdisk"] = ramdisk_url
+
+        return instance_info
 
     async def _validate_bmc_connectivity(self, server_id: str) -> bool:
         """Validate BMC is reachable by attempting driver validation.
@@ -344,3 +455,77 @@ class EnrollService:
             "clean wait": "Server is waiting for cleaning to complete",
         }
         return state_messages.get(provision_state, f"Server status: {provision_state}")
+
+    async def provide_server(self, server_id: str) -> EnrollResponse:
+        """
+        Transition a managed server to available state for provisioning.
+
+        Call this after enrollment when the server is ready to join the available pool.
+        The node must be in 'manageable' state to proceed.
+
+        Args:
+            server_id: UUID or name of the server
+
+        Returns:
+            EnrollResponse with updated status
+
+        Raises:
+            HTTPException: 404 if server not found
+            HTTPException: 400 if server is not in manageable state
+            HTTPException: 502 if Ironic API communication fails
+        """
+        try:
+            # Fetch current node to check state
+            node = await self.ironic.get_node(server_id, ignore_missing=True)
+
+            if node is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Server '{server_id}' not found"
+                )
+
+            current_state = node.provision_state
+            if current_state != "manageable":
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Server must be in 'manageable' state to provide. "
+                           f"Current state: {current_state}"
+                )
+
+            logger.info(f"Initiating provide transition for server: {server_id}")
+
+            # Initiate transition to provide (asynchronous)
+            await self.ironic.set_node_provision_state(server_id, "provide")
+
+            logger.info(f"Provide transition initiated for server: {server_id}")
+
+            # Get current state and return
+            current_node = await self.ironic.get_node(server_id)
+            provision_state = current_node.provision_state
+
+            return EnrollResponse(
+                server_id=server_id,
+                server_name=getattr(current_node, "name", "unknown"),
+                status="enrolled",
+                provision_state=provision_state,
+                message=f"Server transition to available initiated. "
+                        f"Current state: {provision_state}. "
+                        f"Hardware cleaning may take several minutes. "
+                        f"Use GET /servers/{server_id}/enrollment-status to check progress.",
+                created_at=datetime.now(timezone.utc)
+            )
+
+        except HTTPException:
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error during provide for {server_id}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ironic API error: {str(e)}"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error during provide for {server_id}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error during provide: {str(e)}"
+            )

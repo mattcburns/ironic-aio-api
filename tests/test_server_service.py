@@ -232,6 +232,21 @@ async def test_get_server_by_name(
     assert result.name == "server-1"
 
 
+@pytest.mark.asyncio
+async def test_get_server_name_falls_back_to_id() -> None:
+    """Test missing server name falls back to ID."""
+    node = create_fake_node(
+        uuid="node-1",
+        name="server-1",
+    )
+    node.name = None
+    service = ServerService(ironic_client=FakeIronicClientForServer(nodes=[node]))
+
+    result = await service.get_server("node-1")
+
+    assert result.name == "node-1"
+
+
 def test_is_available_available_state() -> None:
     """Test availability check for available server."""
     service = ServerService(ironic_client=FakeIronicClientForServer())

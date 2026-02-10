@@ -32,7 +32,10 @@ async def enroll_server(
     netmask: str,
     gateway: str,
     resource_class: Optional[str] = None,
-    redfish_system_id: Optional[str] = None
+    kernel_url: Optional[str] = None,
+    ramdisk_url: Optional[str] = None,
+    redfish_system_id: Optional[str] = None,
+    redfish_verify_ca: bool = False,
 ) -> dict:
     """
     Enroll a new physical server into Ironic management.
@@ -48,7 +51,10 @@ async def enroll_server(
         netmask: Network subnet mask (e.g., '255.255.255.0')
         gateway: Gateway IP address for network routing
         resource_class: Optional resource classification
+        kernel_url: Optional deploy kernel URL override
+        ramdisk_url: Optional deploy ramdisk URL override
         redfish_system_id: Optional Redfish system ID (defaults to /redfish/v1/Systems/1)
+        redfish_verify_ca: Whether to verify Redfish CA certificates
 
     Returns:
         Enrolled server details including assigned ID
@@ -69,6 +75,9 @@ async def enroll_server(
             gateway=gateway,
         ),
         resource_class=resource_class,
+        kernel_url=kernel_url,
+        ramdisk_url=ramdisk_url,
+        redfish_verify_ca=redfish_verify_ca,
         **({"redfish_system_id": redfish_system_id} if redfish_system_id else {})
     )
     result = await service.enroll_server(request)
@@ -92,4 +101,23 @@ async def get_enrollment_status(server_id: str) -> dict:
     """
     service = get_enroll_service()
     result = await service.get_enrollment_status(server_id)
+    return result.model_dump()
+
+
+@mcp.tool()
+async def provide_server(server_id: str) -> dict:
+    """
+    Transition a managed server to available state for provisioning.
+
+    Call this after enrollment when the server has completed initial setup
+    and is ready to join the available pool.
+
+    Args:
+        server_id: UUID or name of the server
+
+    Returns:
+        Server status with updated provision state
+    """
+    service = get_enroll_service()
+    result = await service.provide_server(server_id)
     return result.model_dump()

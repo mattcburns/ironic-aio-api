@@ -31,8 +31,9 @@ def get_enroll_service() -> "EnrollService":
     """Create an enrollment service instance."""
     from services.enroll import EnrollService
 
-    ironic_client = get_ironic_client()
-    return EnrollService(ironic_client)
+    settings = get_settings()
+    ironic_client = get_ironic_client(settings)
+    return EnrollService(ironic_client, settings)
 
 
 def get_server_service() -> "ServerService":

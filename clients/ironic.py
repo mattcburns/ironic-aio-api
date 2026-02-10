@@ -21,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import httpx
+from openstack import exceptions as os_exceptions
 from openstack import connection as os_connection
 
 from config import Settings
@@ -112,13 +113,20 @@ class IronicClient:
         try:
             connection = await self.get_connection()
             if ignore_missing:
-                node = connection.baremetal.get_node(
-                    node_id,
-                    ignore_missing=ignore_missing,
-                )
-            else:
-                node = connection.baremetal.get_node(node_id)
-            return node
+                try:
+                    return connection.baremetal.get_node(
+                        node_id,
+                        ignore_missing=True,
+                    )
+                except TypeError:
+                    return connection.baremetal.get_node(node_id)
+
+            return connection.baremetal.get_node(node_id)
+        except os_exceptions.ResourceNotFound:
+            if ignore_missing:
+                return None
+            logger.exception(f"Node {node_id} was not found")
+            raise IronicClientError(f"Failed to get node {node_id}")
         except Exception as exc:
             logger.exception(f"Failed to get node {node_id}")
             raise IronicClientError(f"Failed to get node {node_id}") from exc
@@ -225,6 +233,74 @@ class IronicClient:
         except Exception as exc:
             logger.exception(f"Failed to validate node {node_id}")
             raise IronicClientError(f"Failed to validate node {node_id}") from exc
+
+    async def set_node_network_data(
+        self,
+        node_id: str,
+        network_data: dict,
+    ) -> Node:
+        """Set network data for a node.
+
+        Uses the OpenStack SDK's patch_node method to apply a JSON-Patch
+        operation to set the network_data field on the node.
+
+        Args:
+            node_id: UUID of the node
+            network_data: Network configuration data (links, networks, services)
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If updating network data fails
+        """
+        try:
+            connection = await self.get_connection()
+            # Use patch_node with JSON-Patch format to set network_data
+            patch = [
+                {
+                    "op": "add",
+                    "path": "/network_data",
+                    "value": network_data
+                }
+            ]
+            node = connection.baremetal.patch_node(node_id, patch)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to set network data for node {node_id}")
+            raise IronicClientError(
+                f"Failed to set network data for node {node_id}"
+            ) from exc
+
+    async def set_node_instance_info(
+        self,
+        node_id: str,
+        instance_info: dict,
+    ) -> Node:
+        """Set instance info for a node (kernel, ramdisk, etc.).
+
+        Args:
+            node_id: UUID of the node
+            instance_info: Instance information dictionary
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If updating instance info fails
+        """
+        try:
+            connection = await self.get_connection()
+            node = connection.baremetal.update_node(
+                node_id,
+                instance_info=instance_info
+            )
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to set instance info for node {node_id}")
+            raise IronicClientError(
+                f"Failed to set instance info for node {node_id}"
+            ) from exc
 
     async def set_node_provision_state(
         self,

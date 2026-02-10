@@ -173,9 +173,13 @@ class ServerService:
         created_at = self._parse_datetime(getattr(node, "created_at", None))
         updated_at = self._parse_datetime(getattr(node, "updated_at", None))
 
+        name = getattr(node, "name", None)
+        if not isinstance(name, str) or not name:
+            name = str(node_id)
+
         return ServerSummary(
             id=str(node_id),
-            name=getattr(node, "name", "unknown"),
+            name=name,
             provision_state=provision_state,
             power_state=power_state,
             resource_class=resource_class,
