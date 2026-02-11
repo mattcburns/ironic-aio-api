@@ -121,128 +121,84 @@ def mock_provision_service(mock_ironic_client: FakeIronicClientForMCP, mock_serv
     )
 
 
+@pytest.fixture(autouse=True)
+def _mock_provision_service(monkeypatch, mock_provision_service) -> None:
+    """Automatically mock the provision service for all MCP tests."""
+    def mock_get_provision_service():
+        return mock_provision_service
+
+    monkeypatch.setattr("dependencies.get_provision_service", mock_get_provision_service)
+    monkeypatch.setattr("mcp_tools.provision.get_provision_service", mock_get_provision_service)
+
+
 @pytest.mark.asyncio
 async def test_provision_server_mcp_tool_success(mock_provision_service) -> None:
     """Test successful provisioning via MCP tool."""
-    from dependencies import get_provision_service
-    from app import app
-    
-    def override_get_provision_service():
-        return mock_provision_service
+    result = await provision_server(
+        image_source="https://example.com/ubuntu-22.04.qcow2",
+        server_id="test-server-uuid",
+        image_checksum="abc123def456"
+    )
 
-    app.dependency_overrides[get_provision_service] = override_get_provision_service
-    
-    try:
-        result = await provision_server(
-            image_id="ubuntu-22.04",
-            server_id="test-server-uuid"
-        )
-        
-        assert result["server_id"] == "test-server-uuid"
-        assert result["operation_id"] == "test-server-uuid"
-        assert result["status"] == "accepted"
-        assert "message" in result
-        assert "started_at" in result
-    finally:
-        app.dependency_overrides.clear()
+    assert result["server_id"] == "test-server-uuid"
+    assert result["operation_id"] == "test-server-uuid"
+    assert result["status"] == "accepted"
+    assert "message" in result
+    assert "started_at" in result
 
 
 @pytest.mark.asyncio
 async def test_provision_server_mcp_tool_auto_select(mock_provision_service) -> None:
     """Test provisioning with auto-selection via MCP tool."""
-    from dependencies import get_provision_service
-    from app import app
-    
-    def override_get_provision_service():
-        return mock_provision_service
+    result = await provision_server(
+        image_source="https://example.com/ubuntu-22.04.qcow2"
+    )
 
-    app.dependency_overrides[get_provision_service] = override_get_provision_service
-    
-    try:
-        result = await provision_server(
-            image_id="ubuntu-22.04"
-        )
-        
-        assert "operation_id" in result
-        assert result["status"] == "accepted"
-    finally:
-        app.dependency_overrides.clear()
+    assert "operation_id" in result
+    assert result["status"] == "accepted"
 
 
 @pytest.mark.asyncio
 async def test_provision_server_mcp_tool_with_resource_class(mock_provision_service) -> None:
     """Test provisioning with resource class via MCP tool."""
-    from dependencies import get_provision_service
-    from app import app
-    
-    def override_get_provision_service():
-        return mock_provision_service
+    result = await provision_server(
+        image_source="https://example.com/ubuntu-22.04.qcow2",
+        resource_class="baremetal"
+    )
 
-    app.dependency_overrides[get_provision_service] = override_get_provision_service
-    
-    try:
-        result = await provision_server(
-            image_id="ubuntu-22.04",
-            resource_class="baremetal"
-        )
-        
-        assert result["status"] == "accepted"
-        assert "operation_id" in result
-    finally:
-        app.dependency_overrides.clear()
+    assert result["status"] == "accepted"
+    assert "operation_id" in result
 
 
 @pytest.mark.asyncio
 async def test_check_provision_status_mcp_tool(mock_provision_service) -> None:
     """Test checking provision status via MCP tool."""
-    from dependencies import get_provision_service
-    from app import app
-    
-    def override_get_provision_service():
-        return mock_provision_service
+    result = await check_provision_status(
+        operation_id="test-server-uuid"
+    )
 
-    app.dependency_overrides[get_provision_service] = override_get_provision_service
-    
-    try:
-        result = await check_provision_status(
-            operation_id="test-server-uuid"
-        )
-        
-        assert result["operation_id"] == "test-server-uuid"
-        assert result["server_id"] == "test-server-uuid"
-        assert "status" in result
-        assert "provision_state" in result
-        assert "message" in result
-        assert "started_at" in result
-    finally:
-        app.dependency_overrides.clear()
+    assert result["operation_id"] == "test-server-uuid"
+    assert result["server_id"] == "test-server-uuid"
+    assert "status" in result
+    assert "provision_state" in result
+    assert "message" in result
+    assert "started_at" in result
 
 
 @pytest.mark.asyncio
 async def test_check_provision_status_mcp_tool_structure(mock_provision_service) -> None:
     """Test provision status response structure from MCP tool."""
-    from dependencies import get_provision_service
-    from app import app
-    
-    def override_get_provision_service():
-        return mock_provision_service
+    result = await check_provision_status(
+        operation_id="test-server-uuid"
+    )
 
-    app.dependency_overrides[get_provision_service] = override_get_provision_service
-    
-    try:
-        result = await check_provision_status(
-            operation_id="test-server-uuid"
-        )
-        
-        # Verify all required fields
-        assert "operation_id" in result
-        assert "server_id" in result
-        assert "status" in result
-        assert "provision_state" in result
-        assert "message" in result
-        assert "started_at" in result
-        
-        # Status should be one of the expected values
-        assert result["status"] in ["in_progress", "completed", "failed"]
-    finally:
-        app.dependency_overrides.clear()
+    # Verify all required fields
+    assert "operation_id" in result
+    assert "server_id" in result
+    assert "status" in result
+    assert "provision_state" in result
+    assert "message" in result
+    assert "started_at" in result
+
+    # Status should be one of the expected values
+    assert result["status"] in ["in_progress", "completed", "failed"]

@@ -183,7 +183,8 @@ async def test_provision_server_with_specific_id(
 
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2",
+        image_checksum="abc123def456"
     )
 
     result = await service.provision_server(request)
@@ -208,7 +209,7 @@ async def test_provision_server_auto_select(
     )
 
     request = ProvisionRequest(
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     result = await service.provision_server(request)
@@ -242,7 +243,7 @@ async def test_provision_server_auto_select_with_resource_class(
     )
 
     request = ProvisionRequest(
-        image_id="ubuntu-22.04",
+        image_source="https://example.com/ubuntu-22.04.qcow2",
         resource_class="gpu-baremetal"
     )
 
@@ -264,7 +265,7 @@ async def test_provision_server_not_found(
 
     request = ProvisionRequest(
         server_id="nonexistent-server",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -285,7 +286,7 @@ async def test_auto_select_no_available_servers(
     )
 
     request = ProvisionRequest(
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     with pytest.raises(HTTPException) as exc_info:
@@ -395,7 +396,7 @@ async def test_select_server_with_specific_id(
 
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     server_id = await service._select_server(request)
@@ -418,7 +419,8 @@ async def test_provision_server_calls_set_instance_info(
 
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2",
+        image_checksum="abc123def456"
     )
 
     await service.provision_server(request)
@@ -427,7 +429,8 @@ async def test_provision_server_calls_set_instance_info(
     assert len(mock_ironic_client.set_instance_info_calls) == 1
     node_id, instance_info = mock_ironic_client.set_instance_info_calls[0]
     assert node_id == "test-server-uuid"
-    assert instance_info["image_source"] == "ubuntu-22.04"
+    assert instance_info["image_source"] == "https://example.com/ubuntu-22.04.qcow2"
+    assert instance_info["image_checksum"] == "abc123def456"
 
 
 @pytest.mark.asyncio
@@ -443,7 +446,7 @@ async def test_provision_server_calls_set_provision_state(
 
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     await service.provision_server(request)
@@ -473,7 +476,7 @@ async def test_provision_server_with_config_drive(
     config_data = {"hostname": "test-host", "ssh_keys": ["key1"]}
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04",
+        image_source="https://example.com/ubuntu-22.04.qcow2",
         config_drive=config_data
     )
 
@@ -482,7 +485,7 @@ async def test_provision_server_with_config_drive(
     # Verify config_drive was encoded
     assert len(mock_ironic_client.set_provision_state_calls) == 1
     node_id, target_state, configdrive = mock_ironic_client.set_provision_state_calls[0]
-    
+
     assert configdrive is not None
     # Decode and verify
     decoded = base64.b64decode(configdrive).decode()
@@ -609,7 +612,7 @@ async def test_provision_server_ironic_error(
 
     request = ProvisionRequest(
         server_id="test-server-uuid",
-        image_id="ubuntu-22.04"
+        image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
     with pytest.raises(HTTPException) as exc_info:

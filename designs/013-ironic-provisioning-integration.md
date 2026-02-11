@@ -8,6 +8,8 @@
 
 Provisioning currently stops at server selection and returns a mock status response. This design implements the real Ironic provisioning flow, including instance info configuration, state transition to `active`, and live status queries.
 
+Provisioning remains stateless: the API initiates the workflow and returns `202 Accepted`, and clients poll for progress via a status endpoint backed by Ironic.
+
 ## Goals
 
 1. Apply deployment parameters to the Ironic node.
@@ -36,7 +38,8 @@ Extend `set_node_provision_state` to accept an optional `configdrive` argument a
 Replace TODOs with real calls:
 
 - Build `instance_info` with at least:
-  - `image_source`: `request.image_id`
+  - `image_source`: `request.image_source`
+  - `image_checksum`: `request.image_checksum` (when provided)
 - If `request.config_drive` is provided:
   - Serialize to JSON with `json.dumps`.
   - Base64-encode the JSON string.

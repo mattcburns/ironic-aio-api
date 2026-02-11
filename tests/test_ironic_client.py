@@ -640,7 +640,7 @@ async def test_set_node_provision_state_success(monkeypatch: pytest.MonkeyPatch)
         provision_state = "manage"
 
     class MockBaremetal:
-        def set_node_provision_state(self, node_id, target_state):
+        def set_node_provision_state(self, node_id, target=None, **kwargs):
             return FakeNode()
 
     class MockConnection:
@@ -664,7 +664,7 @@ async def test_set_node_provision_state_error(monkeypatch: pytest.MonkeyPatch) -
     """Test set_node_provision_state raises IronicClientError on failure."""
 
     class MockBaremetal:
-        def set_node_provision_state(self, node_id, target_state):
+        def set_node_provision_state(self, node_id, target=None, **kwargs):
             raise RuntimeError("State transition failed")
 
     class MockConnection:

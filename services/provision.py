@@ -70,14 +70,16 @@ class ProvisionService:
             # Get server details
             server = await self._get_server_by_id(server_id)
 
-            # Build instance_info with image source
+            # Build instance_info with image source and checksum
             instance_info = {
-                "image_source": request.image_id
+                "image_source": request.image_source
             }
+            if request.image_checksum:
+                instance_info["image_checksum"] = request.image_checksum
 
             logger.info(
                 f"Setting instance info for server {server_id} "
-                f"with image {request.image_id}"
+                f"with image {request.image_source}"
             )
             await self.ironic.set_node_instance_info(server_id, instance_info)
 

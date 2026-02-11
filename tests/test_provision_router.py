@@ -39,7 +39,8 @@ async def test_provision_server_endpoint_success(client, mock_server_service) ->
     """Test successful provisioning via REST endpoint."""
     request_data = {
         "server_id": "test-server-uuid",
-        "image_id": "ubuntu-22.04",
+        "image_source": "https://example.com/ubuntu-22.04.qcow2",
+        "image_checksum": "abc123def456",
     }
 
     with patch('dependencies.get_server_service', return_value=mock_server_service):
@@ -58,7 +59,7 @@ async def test_provision_server_endpoint_success(client, mock_server_service) ->
 async def test_provision_server_endpoint_auto_select(client, mock_server_service) -> None:
     """Test provisioning with auto-selection."""
     request_data = {
-        "image_id": "ubuntu-22.04",
+        "image_source": "https://example.com/ubuntu-22.04.qcow2",
     }
 
     with patch('dependencies.get_server_service', return_value=mock_server_service):
@@ -74,7 +75,7 @@ async def test_provision_server_endpoint_auto_select(client, mock_server_service
 async def test_provision_server_endpoint_with_resource_class(client, mock_server_service) -> None:
     """Test provisioning with resource class filter."""
     request_data = {
-        "image_id": "ubuntu-22.04",
+        "image_source": "https://example.com/ubuntu-22.04.qcow2",
         "resource_class": "baremetal",
     }
 
@@ -91,7 +92,7 @@ async def test_provision_server_endpoint_with_config_drive(client, mock_server_s
     """Test provisioning with cloud-init config drive."""
     request_data = {
         "server_id": "test-server-uuid",
-        "image_id": "ubuntu-22.04",
+        "image_source": "https://example.com/ubuntu-22.04.qcow2",
         "config_drive": {
             "hostname": "test-host",
             "network": {
@@ -118,7 +119,7 @@ async def test_provision_server_endpoint_missing_image(client) -> None:
     """Test provisioning fails with missing image."""
     request_data = {
         "server_id": "test-server-uuid",
-        # Missing image_id
+        # Missing image_source
     }
 
     response = client.post("/provision", json=request_data)

@@ -28,7 +28,7 @@ def client() -> TestClient:
     """Create a FastAPI test client with mocked enrollment and provision dependencies."""
     fake_ironic_client_enroll = FakeIronicClientForEnroll()
     fake_ironic_client_provision = FakeIronicClientForProvision(node_id="test-server-uuid")
-    
+
     # Create test server for provision tests
     now = datetime.now(timezone.utc)
     test_server = ServerSummary(

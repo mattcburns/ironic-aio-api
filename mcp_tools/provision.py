@@ -22,17 +22,19 @@ from schemas.provision import ProvisionRequest
 
 @mcp.tool()
 async def provision_server(
-    image_id: str,
+    image_source: str,
     server_id: Optional[str] = None,
-    resource_class: Optional[str] = None
+    resource_class: Optional[str] = None,
+    image_checksum: Optional[str] = None
 ) -> dict:
     """
     Provision a server with an operating system image.
 
     Args:
-        image_id: The OS image ID or name to deploy
+        image_source: The image source URL, Glance image UUID, or image ID to deploy
         server_id: Specific server to provision (optional)
         resource_class: Auto-select server of this class if server_id not provided
+        image_checksum: Optional MD5 or SHA checksum for image verification
 
     Returns:
         Operation details including ID for status tracking
@@ -41,7 +43,8 @@ async def provision_server(
     request = ProvisionRequest(
         server_id=server_id,
         resource_class=resource_class,
-        image_id=image_id
+        image_source=image_source,
+        image_checksum=image_checksum
     )
     result = await service.provision_server(request)
     return result.model_dump()
