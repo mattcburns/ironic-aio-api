@@ -2,6 +2,17 @@
 
 ## Development Setup
 
+### Using Devcontainer (Recommended)
+
+This project includes a devcontainer configuration with all dependencies pre-installed:
+- Python 3.14
+- Node.js LTS (for MCP Inspector)
+- Auto-forwarded ports (8000 for API, 5173 for MCP Inspector)
+
+Open the project in VS Code and select "Reopen in Container" when prompted.
+
+### Manual Setup
+
 Create a virtual environment and install dependencies:
 
 ```bash
@@ -10,12 +21,34 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+For MCP Inspector demo functionality, you'll also need Node.js and npm installed.
+
 ## Running the API
 
 Start the unified server (REST + MCP):
 
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+The server provides two interfaces:
+- **REST API**: `http://localhost:8000` (OpenAPI docs at `/docs`)
+- **MCP Server**: `http://localhost:8000/mcp/sse` (Server-Sent Events)
+
+### MCP Integration
+
+This API implements the Model Context Protocol (MCP), allowing AI assistants like Claude to directly access Ironic operations. See [MCP_DEMO.md](MCP_DEMO.md) for a complete guide on:
+- Using MCP Inspector to test the integration
+- Connecting Claude Desktop to use Ironic tools
+- Available MCP tools and demo workflows
+
+Quick start for MCP demo:
+```bash
+# Start the API in one terminal
+uvicorn app:app --host 0.0.0.0 --port 8000
+
+# Launch MCP Inspector in another terminal
+npx @modelcontextprotocol/inspector http://localhost:8000/mcp/sse
 ```
 
 ## Configuration
