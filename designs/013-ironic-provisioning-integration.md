@@ -1,6 +1,6 @@
 # Design 013: Ironic Provisioning Integration
 
-**Status:** to be implemented
+**Status:** implemented
 
 **Depends On:** Design 005, Design 002, Design 012
 

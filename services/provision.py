@@ -13,14 +13,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import base64
+import json
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException
 
-from clients.ironic import IronicClient
+from clients.ironic import IronicClient, IronicClientError
 from schemas.provision import ProvisionRequest, ProvisionResponse, ProvisionStatus
 from services.server import ServerService
+
+logger = logging.getLogger(__name__)
 
 
 class ProvisionService:
@@ -58,35 +63,69 @@ class ProvisionService:
         Raises:
             HTTPException: If provisioning fails
         """
-        # Select server
-        server_id = await self._select_server(request)
+        try:
+            # Select server
+            server_id = await self._select_server(request)
 
-        # Get server details
-        server = await self._get_server_by_id(server_id)
+            # Get server details
+            server = await self._get_server_by_id(server_id)
 
-        # TODO: Set deploy parameters in Ironic
-        # await self.ironic.set_deploy_target(
-        #     node_id=server_id,
-        #     image_id=request.image_id,
-        #     config_drive=request.config_drive
-        # )
+            # Build instance_info with image source
+            instance_info = {
+                "image_source": request.image_id
+            }
 
-        # TODO: Trigger provisioning state machine
-        # await self.ironic.set_provision_state(
-        #     node_id=server_id,
-        #     target="active"
-        # )
+            logger.info(
+                f"Setting instance info for server {server_id} "
+                f"with image {request.image_id}"
+            )
+            await self.ironic.set_node_instance_info(server_id, instance_info)
 
-        now = datetime.now(timezone.utc)
+            # Prepare configdrive if provided
+            configdrive = None
+            if request.config_drive:
+                config_json = json.dumps(request.config_drive)
+                configdrive = base64.b64encode(config_json.encode()).decode()
+                logger.info(f"Config drive prepared for server {server_id}")
 
-        return ProvisionResponse(
-            operation_id=server_id,
-            server_id=server_id,
-            server_name=server.name,
-            status="accepted",
-            message=f"Provisioning of {server.name} initiated",
-            started_at=now
-        )
+            # Trigger provisioning state machine
+            logger.info(
+                f"Initiating provisioning for server {server_id} "
+                f"to target state 'active'"
+            )
+            await self.ironic.set_node_provision_state(
+                server_id,
+                target_state="active",
+                configdrive=configdrive
+            )
+
+            now = datetime.now(timezone.utc)
+
+            logger.info(f"Provisioning initiated for server {server_id}")
+
+            return ProvisionResponse(
+                operation_id=server_id,
+                server_id=server_id,
+                server_name=server.name,
+                status="accepted",
+                message=f"Provisioning of {server.name} initiated",
+                started_at=now
+            )
+
+        except HTTPException:
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error during provisioning: {str(e)}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Ironic API error: {str(e)}"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error during provisioning: {str(e)}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Provisioning failed: {str(e)}"
+            )
 
     async def get_provision_status(
         self,
@@ -107,46 +146,82 @@ class ProvisionService:
             ProvisionStatus with current status information
 
         Raises:
-            HTTPException: If operation not found
+            HTTPException: If operation not found or Ironic communication fails
         """
-        # TODO: Query Ironic for current provision_state
-        # ironic_node = await self.ironic.get_node(node_id=operation_id)
-        # provision_state = ironic_node.provision_state
+        try:
+            # Query Ironic for current provision_state
+            logger.info(f"Querying provision status for operation {operation_id}")
+            node = await self.ironic.get_node(operation_id, ignore_missing=True)
 
-        # For now, return mock response
-        now = datetime.now(timezone.utc)
-        mock_server_id = operation_id
-        mock_provision_state = "deploying"
+            if node is None:
+                logger.warning(f"Node not found for operation {operation_id}")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Provisioning operation '{operation_id}' not found"
+                )
 
-        # Map Ironic provision_state to status
-        status_map = {
-            "deploying": "in_progress",
-            "active": "completed",
-            "deploy failed": "failed",
-            "manageable": "in_progress",
-            "available": "in_progress",
-        }
+            provision_state = node.provision_state
+            logger.debug(
+                f"Node {operation_id} current provision state: {provision_state}"
+            )
 
-        status = status_map.get(mock_provision_state, "in_progress")
-        progress_map = {
-            "deploying": 50,
-            "active": 100,
-            "deploy failed": None,
-            "manageable": 25,
-            "available": 10,
-        }
-        progress = progress_map.get(mock_provision_state, None)
+            # Map Ironic provision_state to status
+            status_map = {
+                "deploying": "in_progress",
+                "cleaning": "in_progress",
+                "manageable": "in_progress",
+                "available": "in_progress",
+                "active": "completed",
+                "deploy failed": "failed",
+                "error": "failed",
+            }
 
-        return ProvisionStatus(
-            operation_id=operation_id,
-            server_id=mock_server_id,
-            status=status,
-            provision_state=mock_provision_state,
-            progress_percent=progress,
-            message=f"Provisioning in progress: {mock_provision_state}",
-            started_at=now,
-            completed_at=None if status != "completed" else now
-        )
+            status = status_map.get(provision_state, "in_progress")
+
+            # Provide progress estimate based on state
+            progress_map = {
+                "deploying": 50,
+                "cleaning": 75,
+                "manageable": 25,
+                "available": 10,
+                "active": 100,
+                "deploy failed": None,
+                "error": None,
+            }
+            progress = progress_map.get(provision_state, None)
+
+            # Determine if operation is complete
+            completed_at = None
+            if status in ["completed", "failed"]:
+                completed_at = datetime.now(timezone.utc)
+
+            now = datetime.now(timezone.utc)
+
+            return ProvisionStatus(
+                operation_id=operation_id,
+                server_id=node.id or node.uuid,
+                status=status,
+                provision_state=provision_state,
+                progress_percent=progress,
+                message=f"Provisioning in progress: {provision_state}",
+                started_at=now,
+                completed_at=completed_at
+            )
+
+        except HTTPException:
+            raise
+        except IronicClientError as e:
+            logger.exception(f"Ironic API error getting provision status: {str(e)}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to get provisioning status: {str(e)}"
+            )
+        except Exception as e:
+            logger.exception(f"Unexpected error getting provision status: {str(e)}")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to get provisioning status: {str(e)}"
+            )
 
     async def _select_server(self, request: ProvisionRequest) -> str:
         """

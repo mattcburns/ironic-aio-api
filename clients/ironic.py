@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import httpx
 from openstack import exceptions as os_exceptions
@@ -306,12 +306,14 @@ class IronicClient:
         self,
         node_id: str,
         target_state: str,
+        configdrive: Optional[str] = None,
     ) -> Node:
         """Set node provision state target.
 
         Args:
             node_id: UUID of the node
             target_state: Target provision state (e.g., 'manage', 'provide', 'active', 'deleted')
+            configdrive: Optional base64-encoded config drive data
 
         Returns:
             Updated Node object
@@ -321,9 +323,12 @@ class IronicClient:
         """
         try:
             connection = await self.get_connection()
+            kwargs = {"target": target_state}
+            if configdrive is not None:
+                kwargs["configdrive"] = configdrive
             node = connection.baremetal.set_node_provision_state(
                 node_id,
-                target_state
+                **kwargs
             )
             return node
         except Exception as exc:
