@@ -1,6 +1,6 @@
 # Design 014: Ironic Unprovisioning Integration
 
-**Status:** to be implemented
+**Status:** implemented
 
 **Depends On:** Design 006, Design 002, Design 012
 

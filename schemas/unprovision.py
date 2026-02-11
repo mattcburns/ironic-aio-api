@@ -34,11 +34,8 @@ class UnprovisionRequest(BaseModel):
 class UnprovisionResponse(BaseModel):
     """Unprovisioning operation result."""
 
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
-        description="Server UUID"
+        description="Server UUID (Ironic node UUID)"
     )
     server_name: str = Field(
         description="Server name"
@@ -57,11 +54,8 @@ class UnprovisionResponse(BaseModel):
 class UnprovisionStatus(BaseModel):
     """Status of an unprovisioning operation."""
 
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
-        description="Server UUID"
+        description="Server UUID (Ironic node UUID)"
     )
     status: Literal["in_progress", "completed", "failed"] = Field(
         description="Current unprovisioning status"

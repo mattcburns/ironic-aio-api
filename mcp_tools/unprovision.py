@@ -40,16 +40,16 @@ async def unprovision_server(server_id: str, clean: bool = True) -> dict:
 
 
 @mcp.tool()
-async def check_unprovision_status(operation_id: str) -> dict:
+async def check_unprovision_status(server_id: str) -> dict:
     """
     Check the status of a server unprovisioning operation.
 
     Args:
-        operation_id: The operation ID returned from unprovision_server
+        server_id: The server ID (Ironic node UUID)
 
     Returns:
         Current unprovisioning status
     """
     service = get_unprovision_service()
-    result = await service.get_unprovision_status(operation_id)
+    result = await service.get_unprovision_status(server_id)
     return result.model_dump()

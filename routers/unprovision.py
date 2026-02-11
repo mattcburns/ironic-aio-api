@@ -46,9 +46,9 @@ async def unprovision_server(
     return await service.unprovision_server(request)
 
 
-@router.get("/{operation_id}", response_model=UnprovisionStatus)
+@router.get("/{server_id}", response_model=UnprovisionStatus)
 async def get_unprovision_status(
-    operation_id: str,
+    server_id: str,
     service: UnprovisionService = Depends(get_unprovision_service)
 ) -> UnprovisionStatus:
     """
@@ -57,13 +57,13 @@ async def get_unprovision_status(
     Returns current unprovisioning status derived from Ironic's provision_state.
 
     Args:
-        operation_id: The operation ID returned from unprovision_server
+        server_id: The server ID (Ironic node UUID)
         service: Unprovision service dependency
 
     Returns:
         UnprovisionStatus with current unprovisioning status and progress
 
     Raises:
-        HTTPException: 404 if operation not found, 502 if Ironic unreachable
+        HTTPException: 404 if server not found, 502 if Ironic unreachable
     """
-    return await service.get_unprovision_status(operation_id)
+    return await service.get_unprovision_status(server_id)
