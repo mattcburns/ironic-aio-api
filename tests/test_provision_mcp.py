@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 
 from mcp_tools.provision import provision_server, check_provision_status
+from fastapi import HTTPException
 from schemas.server import ServerListResponse, ServerSummary
 from services.provision import ProvisionService
 
@@ -42,9 +43,11 @@ class FakeIronicClientForMCP:
             return None
         raise Exception(f"Node {node_id} not found")
 
-    async def set_node_instance_info(self, node_id: str, instance_info: dict) -> FakeNode:
-        """Set instance info for a node."""
-        self.node.instance_info = instance_info
+    async def patch_node_instance_info(self, node_id: str, instance_info: dict) -> FakeNode:
+        """Patch instance info for a node."""
+        if self.node.instance_info is None:
+            self.node.instance_info = {}
+        self.node.instance_info.update(instance_info)
         return self.node
 
     async def set_node_provision_state(self, node_id: str, target_state: str, configdrive: str | None = None) -> FakeNode:
@@ -80,6 +83,16 @@ class FakeServerService:
             total=len(servers),
             page=page,
             page_size=page_size
+        )
+
+    async def get_server(self, server_id: str) -> ServerSummary:
+        """Get a server by ID."""
+        for server in self.available_servers:
+            if server.id == server_id:
+                return server
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server '{server_id}' not found"
         )
 
 
@@ -141,7 +154,6 @@ async def test_provision_server_mcp_tool_success(mock_provision_service) -> None
     )
 
     assert result["server_id"] == "test-server-uuid"
-    assert result["operation_id"] == "test-server-uuid"
     assert result["status"] == "accepted"
     assert "message" in result
     assert "started_at" in result
@@ -154,7 +166,7 @@ async def test_provision_server_mcp_tool_auto_select(mock_provision_service) -> 
         image_source="https://example.com/ubuntu-22.04.qcow2"
     )
 
-    assert "operation_id" in result
+    assert "server_id" in result
     assert result["status"] == "accepted"
 
 
@@ -167,17 +179,16 @@ async def test_provision_server_mcp_tool_with_resource_class(mock_provision_serv
     )
 
     assert result["status"] == "accepted"
-    assert "operation_id" in result
+    assert "server_id" in result
 
 
 @pytest.mark.asyncio
 async def test_check_provision_status_mcp_tool(mock_provision_service) -> None:
     """Test checking provision status via MCP tool."""
     result = await check_provision_status(
-        operation_id="test-server-uuid"
+        server_id="test-server-uuid"
     )
 
-    assert result["operation_id"] == "test-server-uuid"
     assert result["server_id"] == "test-server-uuid"
     assert "status" in result
     assert "provision_state" in result
@@ -189,11 +200,10 @@ async def test_check_provision_status_mcp_tool(mock_provision_service) -> None:
 async def test_check_provision_status_mcp_tool_structure(mock_provision_service) -> None:
     """Test provision status response structure from MCP tool."""
     result = await check_provision_status(
-        operation_id="test-server-uuid"
+        server_id="test-server-uuid"
     )
 
     # Verify all required fields
-    assert "operation_id" in result
     assert "server_id" in result
     assert "status" in result
     assert "provision_state" in result

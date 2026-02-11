@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from clients.ironic import IronicClientError
+from config import Settings
 from schemas.provision import ProvisionRequest
 from schemas.server import ServerListResponse, ServerSummary
 from services.provision import ProvisionService
@@ -50,7 +51,7 @@ class FakeIronicClientForProvision:
         self.node_id = node_id or str(uuid4())
         self.node = FakeNode("test-server", self.node_id, "available")
         self.simulate_error = simulate_error
-        self.set_instance_info_calls = []
+        self.patch_instance_info_calls = []
         self.set_provision_state_calls = []
 
     async def get_node(self, node_id: str, ignore_missing: bool = False) -> FakeNode | None:
@@ -71,17 +72,19 @@ class FakeIronicClientForProvision:
 
         raise IronicClientError(f"Node {node_id} not found")
 
-    async def set_node_instance_info(
+    async def patch_node_instance_info(
         self,
         node_id: str,
         instance_info: dict,
     ) -> FakeNode:
-        """Set instance info for a node."""
+        """Patch instance info for a node."""
         if self.simulate_error == "ironic_error":
             raise IronicClientError("Failed to set instance info")
 
-        self.set_instance_info_calls.append((node_id, instance_info))
-        self.node.instance_info = instance_info
+        self.patch_instance_info_calls.append((node_id, instance_info))
+        if self.node.instance_info is None:
+            self.node.instance_info = {}
+        self.node.instance_info.update(instance_info)
         return self.node
 
     async def set_node_provision_state(
@@ -130,6 +133,16 @@ class FakeServerService:
             total=len(servers),
             page=page,
             page_size=page_size
+        )
+
+    async def get_server(self, server_id: str) -> ServerSummary:
+        """Get a server by ID."""
+        for server in self.available_servers:
+            if server.id == server_id:
+                return server
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server '{server_id}' not found"
         )
 
 
@@ -190,7 +203,6 @@ async def test_provision_server_with_specific_id(
     result = await service.provision_server(request)
 
     assert result.server_id == "test-server-uuid"
-    assert result.operation_id == "test-server-uuid"
     assert result.server_name == "test-server"
     assert result.status == "accepted"
     assert "provisioning" in result.message.lower()
@@ -237,6 +249,7 @@ async def test_provision_server_auto_select_with_resource_class(
     )
     fake_server_service = FakeServerService(available_servers=[server])
 
+    mock_ironic_client = FakeIronicClientForProvision(node_id="gpu-server-uuid")
     service = ProvisionService(
         ironic_client=mock_ironic_client,
         server_service=fake_server_service
@@ -309,7 +322,6 @@ async def test_get_provision_status(
 
     status = await service.get_provision_status("test-server-uuid")
 
-    assert status.operation_id == "test-server-uuid"
     assert status.server_id == "test-server-uuid"
     assert status.status in ["in_progress", "completed", "failed"]
     assert status.provision_state is not None
@@ -407,11 +419,11 @@ async def test_select_server_with_specific_id(
 
 
 @pytest.mark.asyncio
-async def test_provision_server_calls_set_instance_info(
+async def test_provision_server_calls_patch_instance_info(
     mock_ironic_client: FakeIronicClientForProvision,
     fake_server_service_with_server: FakeServerService,
 ) -> None:
-    """Test that provision_server calls set_node_instance_info with image."""
+    """Test that provision_server patches instance_info with image."""
     service = ProvisionService(
         ironic_client=mock_ironic_client,
         server_service=fake_server_service_with_server
@@ -425,12 +437,39 @@ async def test_provision_server_calls_set_instance_info(
 
     await service.provision_server(request)
 
-    # Verify set_node_instance_info was called
-    assert len(mock_ironic_client.set_instance_info_calls) == 1
-    node_id, instance_info = mock_ironic_client.set_instance_info_calls[0]
+    # Verify patch_node_instance_info was called
+    assert len(mock_ironic_client.patch_instance_info_calls) == 1
+    node_id, instance_info = mock_ironic_client.patch_instance_info_calls[0]
     assert node_id == "test-server-uuid"
     assert instance_info["image_source"] == "https://example.com/ubuntu-22.04.qcow2"
     assert instance_info["image_checksum"] == "abc123def456"
+
+
+@pytest.mark.asyncio
+async def test_provision_server_fallbacks_to_default_kernel_ramdisk(
+    fake_server_service_with_server: FakeServerService,
+) -> None:
+    """Test default kernel/ramdisk are added when missing on the node."""
+    mock_ironic_client = FakeIronicClientForProvision(node_id="test-server-uuid")
+    mock_ironic_client.node.instance_info = {}
+    settings = Settings(kernel_url="https://example.com/kernel", ramdisk_url="https://example.com/ramdisk")
+    service = ProvisionService(
+        ironic_client=mock_ironic_client,
+        server_service=fake_server_service_with_server,
+        settings=settings,
+    )
+
+    request = ProvisionRequest(
+        server_id="test-server-uuid",
+        image_source="https://example.com/ubuntu-22.04.qcow2",
+    )
+
+    await service.provision_server(request)
+
+    assert len(mock_ironic_client.patch_instance_info_calls) == 1
+    _, instance_info = mock_ironic_client.patch_instance_info_calls[0]
+    assert instance_info["kernel"] == "https://example.com/kernel"
+    assert instance_info["ramdisk"] == "https://example.com/ramdisk"
 
 
 @pytest.mark.asyncio

@@ -31,14 +31,14 @@ async def provision_server(
     Provision a server with the specified image.
 
     Initiates provisioning of a specific server or auto-selects an available server.
-    Returns 202 Accepted with operation ID for tracking.
+    Returns 202 Accepted with server ID for tracking.
 
     Args:
         request: Provisioning request with server selection and image details
         service: Provision service dependency
 
     Returns:
-        ProvisionResponse with operation ID for tracking
+        ProvisionResponse with server ID for tracking
 
     Raises:
         HTTPException: 404 if server not found, 400 if image invalid, 502 if Ironic unreachable
@@ -46,9 +46,9 @@ async def provision_server(
     return await service.provision_server(request)
 
 
-@router.get("/{operation_id}", response_model=ProvisionStatus)
+@router.get("/{server_id}", response_model=ProvisionStatus)
 async def get_provision_status(
-    operation_id: str,
+    server_id: str,
     service: ProvisionService = Depends(get_provision_service)
 ) -> ProvisionStatus:
     """
@@ -57,7 +57,7 @@ async def get_provision_status(
     Returns current provisioning status derived from Ironic's provision_state.
 
     Args:
-        operation_id: The operation ID returned from provision_server
+        server_id: The server ID returned from provision_server
         service: Provision service dependency
 
     Returns:
@@ -66,4 +66,4 @@ async def get_provision_status(
     Raises:
         HTTPException: 404 if operation not found, 502 if Ironic unreachable
     """
-    return await service.get_provision_status(operation_id)
+    return await service.get_provision_status(server_id)

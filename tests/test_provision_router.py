@@ -49,7 +49,6 @@ async def test_provision_server_endpoint_success(client, mock_server_service) ->
     assert response.status_code == 202
     data = response.json()
     assert data["server_id"] == "test-server-uuid"
-    assert data["operation_id"] == "test-server-uuid"
     assert data["status"] == "accepted"
     assert "message" in data
     assert "started_at" in data
@@ -67,7 +66,7 @@ async def test_provision_server_endpoint_auto_select(client, mock_server_service
 
     assert response.status_code == 202
     data = response.json()
-    assert "operation_id" in data
+    assert "server_id" in data
     assert data["status"] == "accepted"
 
 
@@ -134,7 +133,6 @@ async def test_get_provision_status_endpoint(client) -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["operation_id"] == "test-server-uuid"
     assert data["server_id"] == "test-server-uuid"
     assert "status" in data
     assert "provision_state" in data
@@ -151,7 +149,6 @@ async def test_get_provision_status_structure(client) -> None:
     data = response.json()
 
     # Verify all required fields
-    assert "operation_id" in data
     assert "server_id" in data
     assert "status" in data
     assert "provision_state" in data

@@ -37,7 +37,7 @@ async def provision_server(
         image_checksum: Optional MD5 or SHA checksum for image verification
 
     Returns:
-        Operation details including ID for status tracking
+        Operation details including server ID for status tracking
     """
     service = get_provision_service()
     request = ProvisionRequest(
@@ -51,16 +51,16 @@ async def provision_server(
 
 
 @mcp.tool()
-async def check_provision_status(operation_id: str) -> dict:
+async def check_provision_status(server_id: str) -> dict:
     """
     Check the status of a server provisioning operation.
 
     Args:
-        operation_id: The operation ID returned from provision_server
+        server_id: The server ID returned from provision_server
 
     Returns:
         Current provisioning status and progress
     """
     service = get_provision_service()
-    result = await service.get_provision_status(operation_id)
+    result = await service.get_provision_status(server_id)
     return result.model_dump()

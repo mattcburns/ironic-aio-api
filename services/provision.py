@@ -22,6 +22,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from clients.ironic import IronicClient, IronicClientError
+from config import Settings, get_settings
 from schemas.provision import ProvisionRequest, ProvisionResponse, ProvisionStatus
 from services.server import ServerService
 
@@ -31,7 +32,12 @@ logger = logging.getLogger(__name__)
 class ProvisionService:
     """Server provisioning business logic."""
 
-    def __init__(self, ironic_client: IronicClient, server_service: ServerService):
+    def __init__(
+        self,
+        ironic_client: IronicClient,
+        server_service: ServerService,
+        settings: Settings | None = None,
+    ):
         """Initialize provisioning service.
 
         Args:
@@ -40,6 +46,7 @@ class ProvisionService:
         """
         self.ironic = ironic_client
         self.server_service = server_service
+        self.settings = settings or get_settings()
 
     async def provision_server(
         self,
@@ -52,13 +59,13 @@ class ProvisionService:
         2. Validate server is in correct state
         3. Set deploy parameters (image, config)
         4. Trigger provisioning via Ironic API
-        5. Return operation tracking ID
+        5. Return server ID for status tracking
 
         Args:
             request: Provisioning request with server details and image
 
         Returns:
-            ProvisionResponse with operation tracking ID
+            ProvisionResponse with server ID for tracking
 
         Raises:
             HTTPException: If provisioning fails
@@ -70,18 +77,27 @@ class ProvisionService:
             # Get server details
             server = await self._get_server_by_id(server_id)
 
-            # Build instance_info with image source and checksum
+            node = await self.ironic.get_node(server_id)
+            existing_instance_info = node.instance_info or {}
+
+            # Build instance_info updates with image source and checksum
             instance_info = {
                 "image_source": request.image_source
             }
             if request.image_checksum:
                 instance_info["image_checksum"] = request.image_checksum
 
+            if "kernel" not in existing_instance_info and self.settings.kernel_url:
+                instance_info["kernel"] = self.settings.kernel_url
+
+            if "ramdisk" not in existing_instance_info and self.settings.ramdisk_url:
+                instance_info["ramdisk"] = self.settings.ramdisk_url
+
             logger.info(
-                f"Setting instance info for server {server_id} "
+                f"Patching instance info for server {server_id} "
                 f"with image {request.image_source}"
             )
-            await self.ironic.set_node_instance_info(server_id, instance_info)
+            await self.ironic.patch_node_instance_info(server_id, instance_info)
 
             # Prepare configdrive if provided
             configdrive = None
@@ -106,7 +122,6 @@ class ProvisionService:
             logger.info(f"Provisioning initiated for server {server_id}")
 
             return ProvisionResponse(
-                operation_id=server_id,
                 server_id=server_id,
                 server_name=server.name,
                 status="accepted",
@@ -131,7 +146,7 @@ class ProvisionService:
 
     async def get_provision_status(
         self,
-        operation_id: str
+        server_id: str
     ) -> ProvisionStatus:
         """
         Get current status of a provisioning operation.
@@ -142,7 +157,7 @@ class ProvisionService:
         - deploy failed → failed
 
         Args:
-            operation_id: The operation ID (Ironic node UUID)
+            server_id: The Ironic node UUID to check
 
         Returns:
             ProvisionStatus with current status information
@@ -152,19 +167,19 @@ class ProvisionService:
         """
         try:
             # Query Ironic for current provision_state
-            logger.info(f"Querying provision status for operation {operation_id}")
-            node = await self.ironic.get_node(operation_id, ignore_missing=True)
+            logger.info(f"Querying provision status for server {server_id}")
+            node = await self.ironic.get_node(server_id, ignore_missing=True)
 
             if node is None:
-                logger.warning(f"Node not found for operation {operation_id}")
+                logger.warning(f"Node not found for server {server_id}")
                 raise HTTPException(
                     status_code=404,
-                    detail=f"Provisioning operation '{operation_id}' not found"
+                    detail=f"Server '{server_id}' not found"
                 )
 
             provision_state = node.provision_state
             logger.debug(
-                f"Node {operation_id} current provision state: {provision_state}"
+                f"Node {server_id} current provision state: {provision_state}"
             )
 
             # Map Ironic provision_state to status
@@ -200,7 +215,6 @@ class ProvisionService:
             now = datetime.now(timezone.utc)
 
             return ProvisionStatus(
-                operation_id=operation_id,
                 server_id=node.id or node.uuid,
                 status=status,
                 provision_state=provision_state,
@@ -255,7 +269,15 @@ class ProvisionService:
         Raises:
             HTTPException: If server not found or not available
         """
-        await self._get_server_by_id(server_id)
+        server = await self._get_server_by_id(server_id)
+
+        # Validate server is in correct state for provisioning
+        if server.provision_state != "available":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Server {server_id} is in '{server.provision_state}' state, must be 'available' to provision"
+            )
+
         return server_id
 
     async def _get_server_by_id(self, server_id: str) -> "ServerSummary":
@@ -269,27 +291,9 @@ class ProvisionService:
             ServerSummary object with server details
 
         Raises:
-            HTTPException: If server not found or not available
+            HTTPException: If server not found
         """
-        try:
-            servers = await self.server_service.list_servers(
-                available_only=True,
-                page_size=100
-            )
-            for server in servers.servers:
-                if server.id == server_id:
-                    return server
-            raise HTTPException(
-                status_code=404,
-                detail=f"Server {server_id} not found or not available for provisioning"
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to communicate with Ironic"
-            ) from e
+        return await self.server_service.get_server(server_id)
 
     async def _auto_select_server(
         self,

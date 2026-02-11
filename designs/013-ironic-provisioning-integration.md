@@ -59,7 +59,7 @@ Errors from the Ironic client should map to `HTTPException(502)`.
 
 Implement real status retrieval:
 
-- Fetch node via `ironic.get_node(operation_id, ignore_missing=True)`.
+- Fetch node via `ironic.get_node(server_id, ignore_missing=True)`.
 - If missing, return `HTTPException(404)`.
 - Map `node.provision_state` to status:
   - `deploying`, `cleaning`, `manageable`, `available` -> `in_progress`

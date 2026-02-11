@@ -45,10 +45,6 @@ class ProvisionRequest(BaseModel):
 
 class ProvisionResponse(BaseModel):
     """Provisioning operation result."""
-
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
         description="Server UUID"
     )
@@ -68,10 +64,6 @@ class ProvisionResponse(BaseModel):
 
 class ProvisionStatus(BaseModel):
     """Status of a provisioning operation."""
-
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
         description="Server UUID"
     )
