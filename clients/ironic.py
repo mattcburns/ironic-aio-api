@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import httpx
 from openstack import exceptions as os_exceptions
@@ -302,16 +302,53 @@ class IronicClient:
                 f"Failed to set instance info for node {node_id}"
             ) from exc
 
+    async def patch_node_instance_info(
+        self,
+        node_id: str,
+        instance_info_updates: dict,
+    ) -> Node:
+        """Patch instance info for a node without replacing existing data.
+
+        Args:
+            node_id: UUID of the node
+            instance_info_updates: Instance info key/value updates to apply
+
+        Returns:
+            Updated Node object
+
+        Raises:
+            IronicClientError: If patching instance info fails
+        """
+        try:
+            connection = await self.get_connection()
+            patch = [
+                {
+                    "op": "add",
+                    "path": f"/instance_info/{key}",
+                    "value": value,
+                }
+                for key, value in instance_info_updates.items()
+            ]
+            node = connection.baremetal.patch_node(node_id, patch)
+            return node
+        except Exception as exc:
+            logger.exception(f"Failed to patch instance info for node {node_id}")
+            raise IronicClientError(
+                f"Failed to patch instance info for node {node_id}"
+            ) from exc
+
     async def set_node_provision_state(
         self,
         node_id: str,
         target_state: str,
+        configdrive: Optional[str] = None,
     ) -> Node:
         """Set node provision state target.
 
         Args:
             node_id: UUID of the node
             target_state: Target provision state (e.g., 'manage', 'provide', 'active', 'deleted')
+            configdrive: Optional base64-encoded config drive data
 
         Returns:
             Updated Node object
@@ -321,9 +358,12 @@ class IronicClient:
         """
         try:
             connection = await self.get_connection()
+            kwargs = {"target": target_state}
+            if configdrive is not None:
+                kwargs["configdrive"] = configdrive
             node = connection.baremetal.set_node_provision_state(
                 node_id,
-                target_state
+                **kwargs
             )
             return node
         except Exception as exc:

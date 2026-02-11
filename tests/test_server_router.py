@@ -48,6 +48,23 @@ class FakeServerService:
         total = len(servers)
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
+        paginated_servers = servers[start_idx:end_idx]
+        return ServerListResponse(
+            servers=paginated_servers,
+            total=total,
+            page=page,
+            page_size=page_size
+        )
+
+    async def get_server(self, server_id: str) -> ServerSummary:
+        """Get a server by ID."""
+        for server in self._servers:
+            if server.id == server_id:
+                return server
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server '{server_id}' not found"
+        )
         return ServerListResponse(
             servers=servers[start_idx:end_idx],
             total=total,

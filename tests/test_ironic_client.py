@@ -640,7 +640,7 @@ async def test_set_node_provision_state_success(monkeypatch: pytest.MonkeyPatch)
         provision_state = "manage"
 
     class MockBaremetal:
-        def set_node_provision_state(self, node_id, target_state):
+        def set_node_provision_state(self, node_id, target=None, **kwargs):
             return FakeNode()
 
     class MockConnection:
@@ -664,7 +664,7 @@ async def test_set_node_provision_state_error(monkeypatch: pytest.MonkeyPatch) -
     """Test set_node_provision_state raises IronicClientError on failure."""
 
     class MockBaremetal:
-        def set_node_provision_state(self, node_id, target_state):
+        def set_node_provision_state(self, node_id, target=None, **kwargs):
             raise RuntimeError("State transition failed")
 
     class MockConnection:
@@ -746,5 +746,69 @@ async def test_set_node_network_data_error(monkeypatch: pytest.MonkeyPatch) -> N
     network_data = {"links": [], "networks": [], "services": []}
     with pytest.raises(IronicClientError, match="Failed to set network data"):
         await client.set_node_network_data("node-456", network_data)
+
+
+@pytest.mark.asyncio
+async def test_patch_node_instance_info_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test patch_node_instance_info successfully patches instance info."""
+
+    class FakeNode:
+        id = "node-789"
+        instance_info = {"kernel": "kernel.img"}
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            node = FakeNode()
+            for operation in patch:
+                if operation["op"] == "add" and operation["path"].startswith("/instance_info/"):
+                    key = operation["path"].split("/", 2)[2]
+                    node.instance_info[key] = operation["value"]
+            return node
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    updates = {
+        "image_source": "https://example.com/ubuntu.qcow2",
+        "image_checksum": "abc123",
+    }
+    result = await client.patch_node_instance_info("node-789", updates)
+
+    assert result.id == "node-789"
+    assert result.instance_info["image_source"] == "https://example.com/ubuntu.qcow2"
+    assert result.instance_info["image_checksum"] == "abc123"
+
+
+@pytest.mark.asyncio
+async def test_patch_node_instance_info_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test patch_node_instance_info raises IronicClientError on failure."""
+
+    class MockBaremetal:
+        def patch_node(self, node_id, patch):
+            raise RuntimeError("Instance info patch failed")
+
+    class MockConnection:
+        baremetal = MockBaremetal()
+
+    async def mock_get_connection():
+        return MockConnection()
+
+    settings = Settings()
+    client = IronicClient(settings)
+    monkeypatch.setattr(client, "get_connection", mock_get_connection)
+
+    with pytest.raises(IronicClientError, match="Failed to patch instance info"):
+        await client.patch_node_instance_info("node-789", {"image_source": "image"})
 
 

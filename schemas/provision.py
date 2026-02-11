@@ -30,8 +30,12 @@ class ProvisionRequest(BaseModel):
         default=None,
         description="Resource class for auto-selection if server_id not provided"
     )
-    image_id: str = Field(
-        description="Glance image ID or name to deploy"
+    image_source: str = Field(
+        description="Image source URL, Glance image UUID, or image ID"
+    )
+    image_checksum: Optional[str] = Field(
+        default=None,
+        description="MD5 or SHA checksum of the image for verification"
     )
     config_drive: Optional[dict] = Field(
         default=None,
@@ -41,10 +45,6 @@ class ProvisionRequest(BaseModel):
 
 class ProvisionResponse(BaseModel):
     """Provisioning operation result."""
-
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
         description="Server UUID"
     )
@@ -64,10 +64,6 @@ class ProvisionResponse(BaseModel):
 
 class ProvisionStatus(BaseModel):
     """Status of a provisioning operation."""
-
-    operation_id: str = Field(
-        description="UUID for tracking (Ironic node UUID)"
-    )
     server_id: str = Field(
         description="Server UUID"
     )
