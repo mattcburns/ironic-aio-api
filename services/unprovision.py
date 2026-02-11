@@ -62,16 +62,22 @@ class UnprovisionService:
         # Validate server can be unprovisioned
         await self._validate_server_provisionable(server.id, server.provision_state)
 
-        # TODO: Trigger unprovisioning in Ironic
-        # await self.ironic.set_provision_state(
-        #     node_id=server.id,
-        #     target="deleted" if request.clean else "available"
-        # )
+        # Trigger unprovisioning in Ironic
+        target_state = "deleted" if request.clean else "available"
+        try:
+            await self.ironic.set_node_provision_state(
+                node_id=server.id,
+                target_state=target_state
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to communicate with Ironic"
+            ) from e
 
         now = datetime.now(timezone.utc)
 
         return UnprovisionResponse(
-            operation_id=server.id,
             server_id=server.id,
             server_name=server.name,
             status="accepted",
@@ -81,7 +87,7 @@ class UnprovisionService:
 
     async def get_unprovision_status(
         self,
-        operation_id: str
+        server_id: str
     ) -> UnprovisionStatus:
         """
         Get current status of an unprovisioning operation.
@@ -93,7 +99,7 @@ class UnprovisionService:
         - clean failed → failed
 
         Args:
-            operation_id: The operation ID (Ironic node UUID)
+            server_id: The server ID (Ironic node UUID)
 
         Returns:
             UnprovisionStatus with current status information
@@ -101,14 +107,23 @@ class UnprovisionService:
         Raises:
             HTTPException: If operation not found
         """
-        # TODO: Query Ironic for current provision_state
-        # ironic_node = await self.ironic.get_node(node_id=operation_id)
-        # provision_state = ironic_node.provision_state
+        # Query Ironic for current provision_state
+        try:
+            node = await self.ironic.get_node(server_id, ignore_missing=True)
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to communicate with Ironic"
+            ) from e
 
-        # For now, return mock response
+        if node is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Server '{server_id}' not found"
+            )
+
+        provision_state = node.provision_state
         now = datetime.now(timezone.utc)
-        mock_server_id = operation_id
-        mock_provision_state = "cleaning"
 
         # Map Ironic provision_state to status
         status_map = {
@@ -119,7 +134,7 @@ class UnprovisionService:
             "error": "failed",
         }
 
-        status = status_map.get(mock_provision_state, "in_progress")
+        status = status_map.get(provision_state, "in_progress")
         progress_map = {
             "cleaning": 50,
             "deleting": 75,
@@ -127,17 +142,22 @@ class UnprovisionService:
             "clean failed": None,
             "error": None,
         }
-        progress = progress_map.get(mock_provision_state, None)
+        progress = progress_map.get(provision_state, None)
+
+        # Set completed_at when operation is finished
+        completed_at = None
+        if status in ("completed", "failed"):
+            # Use node's updated_at if available, else current time
+            completed_at = getattr(node, "updated_at", None) or now
 
         return UnprovisionStatus(
-            operation_id=operation_id,
-            server_id=mock_server_id,
+            server_id=node.id,
             status=status,
-            provision_state=mock_provision_state,
+            provision_state=provision_state,
             progress_percent=progress,
-            message=f"Unprovisioning in progress: {mock_provision_state}",
-            started_at=now,
-            completed_at=None if status != "completed" else now
+            message=f"Unprovisioning status: {provision_state}",
+            started_at=getattr(node, "created_at", None) or now,
+            completed_at=completed_at
         )
 
     async def _get_server_by_id(self, server_id: str) -> "ServerSummary":
