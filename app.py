@@ -48,4 +48,5 @@ from mcp_tools import server as _server  # noqa: F401
 from mcp_tools import provision as _provision  # noqa: F401
 from mcp_tools import unprovision as _unprovision  # noqa: F401
 
+# Mount MCP SSE transport
 app.mount("/mcp", mcp.sse_app())
